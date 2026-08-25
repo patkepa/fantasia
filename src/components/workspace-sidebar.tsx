@@ -12,7 +12,6 @@ import {
 import { WorkspaceConfirmDialog } from "./ui/confirm-dialog";
 import { executeLegacyCommand } from "./ui/legacy-command";
 import { WorkspaceToolbar } from "./workspace-toolbar";
-import { WorldPresetGallery } from "./world-preset-gallery";
 import {
   WorkspacePanel,
   WorkspacePanelAction,
@@ -134,6 +133,7 @@ function openWorkspaceSection(section: WorkspaceSection): void {
   const requiredCapability = getWorkspaceSectionCapability(section);
   if (requiredCapability && !requireWorkspaceCapability(requiredCapability)) return;
   setWorkspaceView(section);
+  if (section === "world-setup") mountWorldPresetGallery();
 
   const options = document.getElementById("options");
   if (options?.style.display === "none") document.getElementById("optionsTrigger")?.click();
@@ -143,6 +143,23 @@ function openWorkspaceSection(section: WorkspaceSection): void {
   else tab?.click();
 }
 
+let worldPresetGalleryRoot: HTMLElement | null = null;
+let worldPresetGalleryMount: Promise<void> | null = null;
+
+function mountWorldPresetGallery(): void {
+  if (worldPresetGalleryMount) return;
+
+  const worldSetupSection = document.querySelector<HTMLElement>('[data-options-section="world-setup"]');
+  if (!worldSetupSection) return;
+
+  worldPresetGalleryRoot = document.createElement("div");
+  worldPresetGalleryRoot.id = "worldPresetGalleryRoot";
+  worldSetupSection.prepend(worldPresetGalleryRoot);
+  worldPresetGalleryMount = import("./world-preset-gallery").then(({ WorldPresetGallery }) => {
+    if (worldPresetGalleryRoot) createRoot(worldPresetGalleryRoot).render(<WorldPresetGallery />);
+  });
+}
+
 function getWorkspaceSectionCapability(section: WorkspaceSection): WorkspaceCapability | undefined {
   if (["create", "edit", "style", "preferences"].includes(section)) return "map:edit";
   if (["world-setup", "regenerate"].includes(section)) return "map:generate";
@@ -150,6 +167,10 @@ function getWorkspaceSectionCapability(section: WorkspaceSection): WorkspaceCapa
 }
 
 window.addEventListener("new-map:open", () => openWorkspaceSection("world-setup"));
+window.addEventListener("workspace-panel-change", event => {
+  const detail = (event as CustomEvent<WorkspacePanelChangeDetail>).detail;
+  if (normalizeWorkspaceSection(detail.section) === "world-setup") mountWorldPresetGallery();
+});
 
 function WorkspaceHeader(): React.JSX.Element {
   const [title, setTitle] = useState(WORKSPACE_SECTIONS.style.title);
@@ -369,14 +390,6 @@ function ToolsPanel(): React.JSX.Element {
 const headerRoot = document.getElementById("workspacePanelHeaderRoot");
 const toolsRoot = document.getElementById("toolsContent");
 const mapPreviewRoot = document.getElementById("mapPreviewRoot");
-const worldSetupSection = document.querySelector<HTMLElement>('[data-options-section="world-setup"]');
-
-if (worldSetupSection) {
-  const worldPresetGalleryRoot = document.createElement("div");
-  worldPresetGalleryRoot.id = "worldPresetGalleryRoot";
-  worldSetupSection.prepend(worldPresetGalleryRoot);
-  createRoot(worldPresetGalleryRoot).render(<WorldPresetGallery />);
-}
 
 if (headerRoot) createRoot(headerRoot).render(<WorkspaceHeader />);
 if (toolsRoot) createRoot(toolsRoot).render(<ToolsPanel />);

@@ -14,4 +14,8 @@ describe("component startup order", () => {
     expect(componentsIndexSource.includes("else loadWorkspace()")).toBe(true);
     expect(componentsIndexSource.includes('window.addEventListener("load", loadWorkspace')).toBe(false);
   });
+
+  it("keeps the supporter catalog with the deferred options runtime", () => {
+    expect(optionsRuntimeSource.includes('from "@/data/supporters"')).toBe(true);
+  });
 });

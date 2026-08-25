@@ -265,7 +265,7 @@ describe("PixiMapRenderer lifecycle", () => {
 
     await renderer.mount(surface);
     await renderer.mount(surface);
-    expect(applicationState.init).toHaveBeenCalledWith(expect.objectContaining({ preference: "webgl" }));
+    expect(applicationState.init).toHaveBeenCalledWith(expect.objectContaining({ preference: "webgpu" }));
     expect(applicationState.init).toHaveBeenCalledOnce();
     expect(surface.children).toHaveLength(1);
     await expect(renderer.mount(createSurface())).rejects.toThrow("already mounted");
@@ -316,7 +316,7 @@ describe("PixiMapRenderer lifecycle", () => {
     renderer.destroy();
   });
 
-  it("creates a minimap overview from the rendered WebGL stage", async () => {
+  it("creates a minimap overview from the rendered stage", async () => {
     const renderer = new PixiMapRenderer();
     await renderer.mount(createSurface());
     await renderer.render(

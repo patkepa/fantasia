@@ -9,7 +9,9 @@ import "./tools";
 import "./hotkeys";
 import { destroyDialog, updateDialog } from "./dialog/dialog-helpers";
 import { initializeLayerControlsRuntime } from "./layers/layer-controls-runtime";
+import { mountOptionsPanel } from "./options/options-panel";
 import { initializeMapStyleControls } from "./style/map-style-controls";
+import { mountStylePanel } from "./style/style-panel";
 import "./dialog/sorting";
 import { enableVerticalSortable } from "./dialog/vertical-sortable";
 import { enableElementDragging } from "./element-dragging";
@@ -29,6 +31,8 @@ Object.assign(window, {
     import("./ui/message-dialog").then(({ showMessageDialog }) => showMessageDialog(options)),
   updateDialog
 });
+mountStylePanel();
+mountOptionsPanel();
 initializeLayerControlsRuntime();
 initializeMapStyleControls();
 
@@ -47,5 +51,6 @@ const loadEditorRuntimes = () =>
     import("./style/style-presets-runtime")
   ]);
 const scheduleEditorRuntimes = () => void loadEditorRuntimes();
-if ("requestIdleCallback" in window) window.requestIdleCallback(scheduleEditorRuntimes, { timeout: 1_500 });
+const requestIdle = (window as Partial<Window>).requestIdleCallback;
+if (requestIdle) requestIdle.call(window, scheduleEditorRuntimes, { timeout: 1_500 });
 else window.setTimeout(scheduleEditorRuntimes, 250);

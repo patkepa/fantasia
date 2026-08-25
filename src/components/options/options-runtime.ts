@@ -9,6 +9,7 @@ import { closeDialogs, confirmationDialog } from "@/components/dialog/dialog-hel
 import { enableElementDragging } from "@/components/element-dragging";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { showDomDialog } from "@/components/ui/dom-dialog";
+import { supporters } from "@/data/supporters";
 import { fitLegendBox } from "@/renderers/draw-legend";
 import { fitScaleBar } from "@/renderers/draw-scalebar";
 import { getUnitSettings } from "@/services/units-settings";
@@ -207,7 +208,7 @@ function notifyWorkspacePanelChange(tabId?: string): void {
 
 // show popup with a list of Patreon supportes (updated manually)
 async function showSupporters(): Promise<void> {
-  const list = window.Supporters.split("\n").sort();
+  const list = supporters.split("\n").sort();
   const columns = window.innerWidth < 800 ? 2 : 5;
 
   const messageHtml = `<ul style='column-count: ${columns}; column-gap: 2em'>${list.map(n => `<li>${n}</li>`).join("")}</ul>`;

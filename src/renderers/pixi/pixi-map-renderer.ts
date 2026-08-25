@@ -913,7 +913,7 @@ export class PixiMapRenderer implements MapRenderer {
       // Camera renders are one-shot, so culling must use the new stage transform in the same frame.
       culler: { updateTransform: true },
       height: viewport.height,
-      preference: this.rendererOptions.preference ?? "webgl",
+      preference: this.rendererOptions.preference ?? "webgpu",
       resolution: this.getResolution(viewport),
       width: viewport.width
     });
