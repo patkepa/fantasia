@@ -161,6 +161,7 @@ type CellFillLayer = "biomes" | "cultures" | "provinces" | "religions" | "states
 
 interface CellFillGeography {
   bounds: { height: number; width: number };
+  coastlinePaths: readonly LinePathPrimitive[];
   coastlineOverdrawWidth: number;
   lakePolygons: readonly PolygonPathPrimitive[];
   landPolygons: readonly PolygonPathPrimitive[];
@@ -230,6 +231,7 @@ const INCREMENTAL_LAYERS = new Set<MapLayerId>([
   "emblems",
   "goods",
   "grid",
+  "height",
   "ice",
   "markets",
   "military",
@@ -244,6 +246,7 @@ const INCREMENTAL_LAYERS = new Set<MapLayerId>([
   "trade",
   "zones"
 ]);
+const STYLE_INCREMENTAL_LAYERS = new Set<MapLayerId>(["coastline", "lakes", "landmass"]);
 const LABEL_ATLAS_REFRESH_DELAY_MS = 100;
 const STATIC_INSTANCE_TILE_SIZE = 256;
 const ASYNC_INCREMENTAL_LAYERS = new Set<MapLayerId>([
@@ -1141,6 +1144,7 @@ export class PixiMapRenderer implements MapRenderer {
     this.pickSceneSources.baseGeography = scene;
     this.cellFillGeography = {
       bounds,
+      coastlinePaths: scene.coastline.paths,
       coastlineOverdrawWidth: scene.coastlineOverdrawWidth,
       lakePolygons: scene.lakes.polygons,
       landPolygons: scene.landmass.polygons
@@ -2495,7 +2499,11 @@ export class PixiMapRenderer implements MapRenderer {
       invalidation =>
         invalidation.kind === "topology" ||
         invalidation.kind === "world" ||
-        ("layer" in invalidation && !INCREMENTAL_LAYERS.has(invalidation.layer))
+        ("layer" in invalidation &&
+          !INCREMENTAL_LAYERS.has(invalidation.layer) &&
+          (invalidation.kind !== "style" ||
+            !STYLE_INCREMENTAL_LAYERS.has(invalidation.layer) ||
+            !this.cellFillGeography))
     );
     if (requiresFullBuild) {
       await this.rebuild();
@@ -2553,8 +2561,41 @@ export class PixiMapRenderer implements MapRenderer {
     if (CELL_FILL_LAYERS.includes(layer as CellFillLayer)) return this.buildFillContainer(layer as CellFillLayer);
     if (layer === "borders") return this.buildBordersContainer();
     if (layer === "cells") return this.buildCellsContainer();
+    if (layer === "coastline") {
+      const geography = this.cellFillGeography;
+      if (!geography) return null;
+      return this.buildLineContainer(
+        "coastline",
+        geography.coastlinePaths,
+        role => this.semanticStyle.coastline.roles[role] ?? this.semanticStyle.coastline.default
+      );
+    }
     if (layer === "grid") return this.buildGridContainer();
+    if (layer === "height") {
+      const geography = this.cellFillGeography;
+      return this.buildHeightContainer(
+        geography?.landPolygons ?? [],
+        geography?.bounds ?? getWorldBounds(this.getWorld())
+      );
+    }
     if (layer === "ice") return this.buildIceContainer();
+    if (layer === "lakes") {
+      const geography = this.cellFillGeography;
+      if (!geography) return null;
+      return this.buildPolygonContainer(
+        "lakes",
+        geography.lakePolygons,
+        role => this.semanticStyle.lakes.roles[role] ?? this.semanticStyle.lakes.default
+      );
+    }
+    if (layer === "landmass") {
+      const geography = this.cellFillGeography;
+      if (!geography) return null;
+      return this.buildPolygonContainer("landmass", geography.landPolygons, () => ({
+        fill: this.semanticStyle.landmass,
+        stroke: { cap: "butt", color: this.semanticStyle.landmass.color, dash: "", opacity: 0, width: 0 }
+      }));
+    }
     if (layer === "markets") return this.buildMarketsContainer();
     if (layer === "population") return this.buildPopulationContainer();
     if (layer === "precipitation") return this.buildPrecipitationContainer();

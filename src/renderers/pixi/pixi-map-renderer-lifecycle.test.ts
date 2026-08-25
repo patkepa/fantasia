@@ -310,6 +310,20 @@ describe("PixiMapRenderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("creates a minimap overview from the rendered WebGL stage", async () => {
+    const renderer = new PixiMapRenderer();
+    await renderer.mount(createSurface());
+    await renderer.render(
+      STATIC_VIEWER_WORLD,
+      structuredClone(DEFAULT_PIXI_MAP_STYLE),
+      coalesceInvalidations([{ kind: "world" }])
+    );
+
+    expect(renderer.createOverview(320, 200)).toMatchObject({ height: 16, width: 16 });
+    expect(applicationState.extractCanvas).toHaveBeenCalledOnce();
+    renderer.destroy();
+  });
+
   it("re-evaluates the injected DPR against the resolution budget on resize", async () => {
     let devicePixelRatio = 3;
     const renderer = new PixiMapRenderer({ getDevicePixelRatio: () => devicePixelRatio });
@@ -1050,6 +1064,42 @@ describe("PixiMapRenderer lifecycle", () => {
 
       expect(applicationState.stage?.children.find(child => child.label === "states")).toBe(states);
       expect(applicationState.stage?.children.find(child => child.label === layer)?.visible).toBe(true);
+    }
+    renderer.destroy();
+  });
+
+  it("rematerializes height contours without rebuilding unrelated layers", async () => {
+    const renderer = new PixiMapRenderer();
+    await renderer.mount(createSurface());
+    await renderer.render(
+      STATIC_VIEWER_WORLD,
+      structuredClone(DEFAULT_PIXI_MAP_STYLE),
+      coalesceInvalidations([{ kind: "world" }])
+    );
+    const states = applicationState.stage?.children.find(child => child.label === "states");
+
+    renderer.setLayerVisibility("height", false);
+    expect(applicationState.stage?.children.find(child => child.label === "height")?.visible).toBe(false);
+    renderer.setLayerVisibility("height", true);
+
+    expect(applicationState.stage?.children.find(child => child.label === "states")).toBe(states);
+    expect(applicationState.stage?.children.find(child => child.label === "height")?.visible).toBe(true);
+    renderer.destroy();
+  });
+
+  it("rematerializes geography styles without rebuilding retained map layers", async () => {
+    const renderer = new PixiMapRenderer();
+    const style = structuredClone(DEFAULT_PIXI_MAP_STYLE);
+    await renderer.mount(createSurface());
+    await renderer.render(STATIC_VIEWER_WORLD, style, coalesceInvalidations([{ kind: "world" }]));
+    const states = applicationState.stage?.children.find(child => child.label === "states");
+
+    for (const layer of ["coastline", "lakes", "landmass"] as const) {
+      const previous = applicationState.stage?.children.find(child => child.label === layer);
+      await renderer.render(STATIC_VIEWER_WORLD, style, coalesceInvalidations([{ kind: "style", layer }]));
+
+      expect(applicationState.stage?.children.find(child => child.label === "states")).toBe(states);
+      expect(applicationState.stage?.children.find(child => child.label === layer)).not.toBe(previous);
     }
     renderer.destroy();
   });
