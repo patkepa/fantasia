@@ -26,7 +26,7 @@ import { readReliefSvgDataUri, readSvgElementDataUri, readSvgSymbolDataUri } fro
 export interface PixiRendererControllerApi {
   clear: () => Promise<void>;
   clearInteraction: () => void;
-  createOverview: (maxWidth: number, maxHeight: number) => PixiRendererOverview | null;
+  createOverview: (maxWidth: number, maxHeight: number) => Promise<PixiRendererOverview | null>;
   getCanvas: () => CanvasImageSource | null;
   getRasterCapabilities: () => PixiRasterCapabilities | null;
   getSnapshot: () => PixiRendererSnapshot | null;
@@ -37,7 +37,7 @@ export interface PixiRendererControllerApi {
   pick: (clientX: number, clientY: number) => MapHit | null;
   start: () => Promise<void>;
   whenCommitted: (after?: number) => Promise<number>;
-  renderRasterFrame: (request: PixiRasterFrameRequest) => HTMLCanvasElement;
+  renderRasterFrame: (request: PixiRasterFrameRequest) => Promise<HTMLCanvasElement>;
   setLayerOrder: (order: readonly MapLayerId[]) => void;
   syncCamera: () => void;
   toMapPoint: (clientX: number, clientY: number) => ScreenPoint | null;
@@ -61,11 +61,16 @@ let lastWorld: MapRenderWorld | null = null;
 const interactionOverlay = new MapInteractionOverlay();
 let viewportSyncFrameId: number | null = null;
 
+function getRendererPreference(): "webgl" | "webgpu" {
+  return new URLSearchParams(window.location.search).get("renderer") === "webgpu" ? "webgpu" : "webgl";
+}
+
 const getInstance = async (): Promise<PixiMapRenderer> => {
   instancePromise ??= import("./pixi-map-renderer").then(({ PixiMapRenderer }) => {
     instance = new PixiMapRenderer({
       deviceMemoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
       onSceneChange: dispatchSceneChange,
+      preference: getRendererPreference(),
       recordPerformance: (name, duration) => window.MapPerformance?.record(name, duration),
       resolveReliefIcon: readReliefSvgDataUri,
       resolveCompassIcon: () => readSvgElementDataUri("defs-compass-rose", "-220 -220 440 440"),
@@ -205,7 +210,7 @@ const api: PixiRendererControllerApi = {
     await instance?.clear();
   },
   clearInteraction: () => interactionOverlay.clear(),
-  createOverview: (maxWidth, maxHeight) => instance?.createOverview(maxWidth, maxHeight) ?? null,
+  createOverview: async (maxWidth, maxHeight) => (await instance?.createOverview(maxWidth, maxHeight)) ?? null,
   getCanvas: () => instance?.getCanvas() ?? null,
   getRasterCapabilities: () => instance?.getRasterCapabilities() ?? null,
   getSnapshot: () => instance?.getSnapshot() ?? null,
@@ -231,7 +236,7 @@ const api: PixiRendererControllerApi = {
     const point = getRendererScreenPoint(clientX, clientY);
     return point ? (instance?.pick(point) ?? null) : null;
   },
-  renderRasterFrame: request => {
+  renderRasterFrame: async request => {
     if (!instance) throw new Error("Pixi renderer is not ready for raster export");
     return instance.renderRasterFrame(request);
   },

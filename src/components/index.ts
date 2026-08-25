@@ -7,12 +7,9 @@ import "./zoom";
 import "./viewbox-events";
 import "./tools";
 import "./hotkeys";
-import "./options/options-runtime";
 import { destroyDialog, updateDialog } from "./dialog/dialog-helpers";
 import { initializeLayerControlsRuntime } from "./layers/layer-controls-runtime";
 import { initializeMapStyleControls } from "./style/map-style-controls";
-import "./style/style-editor-loader";
-import "./style/style-presets-runtime";
 import "./dialog/sorting";
 import { enableVerticalSortable } from "./dialog/vertical-sortable";
 import { enableElementDragging } from "./element-dragging";
@@ -40,3 +37,15 @@ initializeMapStyleControls();
 const loadWorkspace = () => void import("./workspace-sidebar");
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", loadWorkspace, { once: true });
 else loadWorkspace();
+
+// These runtimes only bind editor dialogs and controls. Deferring their module evaluation keeps map generation and the
+// first Pixi frame ahead of UI code that is not needed until the user opens an editor.
+const loadEditorRuntimes = () =>
+  Promise.all([
+    import("./options/options-runtime"),
+    import("./style/style-editor-loader"),
+    import("./style/style-presets-runtime")
+  ]);
+const scheduleEditorRuntimes = () => void loadEditorRuntimes();
+if ("requestIdleCallback" in window) window.requestIdleCallback(scheduleEditorRuntimes, { timeout: 1_500 });
+else window.setTimeout(scheduleEditorRuntimes, 250);

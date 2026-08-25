@@ -8,12 +8,14 @@ const applicationState = vi.hoisted(() => ({
   bitmapTextCreate: vi.fn(),
   destroy: vi.fn(),
   extractCanvas: vi.fn(),
+  gpuQueueComplete: vi.fn(async () => undefined),
   hiddenAtExtract: [] as string[],
   init: vi.fn(),
   positionSet: vi.fn(),
   render: vi.fn(),
   resize: vi.fn(),
   scaleSet: vi.fn(),
+  shaderFrom: vi.fn(),
   svgCreate: vi.fn(),
   stage: undefined as
     | { children: Array<{ children: unknown[]; label: string; visible: boolean; zIndex: number }> }
@@ -74,6 +76,7 @@ vi.mock("pixi.js", () => {
           return { height: 16, remove: vi.fn(), width: 16 };
         })
       },
+      gpu: { device: { queue: { onSubmittedWorkDone: applicationState.gpuQueueComplete } } },
       resize: applicationState.resize
     };
     stage = Object.assign(new Container(), {
@@ -149,7 +152,8 @@ vi.mock("pixi.js", () => {
   class Mesh extends DisplayObject {}
 
   class Shader {
-    static from() {
+    static from(options: unknown) {
+      applicationState.shaderFrom(options);
       return new Shader();
     }
     destroy() {}
@@ -225,6 +229,7 @@ describe("PixiMapRenderer lifecycle", () => {
   beforeEach(() => {
     applicationState.destroy.mockClear();
     applicationState.extractCanvas.mockClear();
+    applicationState.gpuQueueComplete.mockClear();
     applicationState.hiddenAtExtract = [];
     applicationState.assetLoad.mockClear();
     applicationState.assetUnload.mockClear();
@@ -236,6 +241,7 @@ describe("PixiMapRenderer lifecycle", () => {
     applicationState.render.mockClear();
     applicationState.resize.mockClear();
     applicationState.scaleSet.mockClear();
+    applicationState.shaderFrom.mockClear();
     applicationState.svgCreate.mockClear();
     applicationState.stage = undefined;
     vi.stubGlobal(
@@ -306,7 +312,7 @@ describe("PixiMapRenderer lifecycle", () => {
     await renderer.mount(createSurface());
     (renderer as unknown as { world: object }).world = {};
 
-    expect(renderer.createOverview(320, 200)).toBeNull();
+    await expect(renderer.createOverview(320, 200)).resolves.toBeNull();
     renderer.destroy();
   });
 
@@ -319,8 +325,30 @@ describe("PixiMapRenderer lifecycle", () => {
       coalesceInvalidations([{ kind: "world" }])
     );
 
-    expect(renderer.createOverview(320, 200)).toMatchObject({ height: 16, width: 16 });
+    await expect(renderer.createOverview(320, 200)).resolves.toMatchObject({ height: 16, width: 16 });
     expect(applicationState.extractCanvas).toHaveBeenCalledOnce();
+    expect(applicationState.gpuQueueComplete).toHaveBeenCalledOnce();
+    renderer.destroy();
+  });
+
+  it("builds retained cell fills with WebGL and WebGPU shader programs", async () => {
+    const renderer = new PixiMapRenderer();
+    await renderer.mount(createSurface());
+    await renderer.render(
+      STATIC_VIEWER_WORLD,
+      structuredClone(DEFAULT_PIXI_MAP_STYLE),
+      coalesceInvalidations([{ kind: "world" }])
+    );
+
+    expect(applicationState.shaderFrom).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gl: expect.objectContaining({ name: "retained-cell-fill" }),
+        gpu: expect.objectContaining({
+          fragment: expect.objectContaining({ entryPoint: "mainFragment" }),
+          vertex: expect.objectContaining({ entryPoint: "mainVertex" })
+        })
+      })
+    );
     renderer.destroy();
   });
 
@@ -641,7 +669,7 @@ describe("PixiMapRenderer lifecycle", () => {
       unsupportedTextureEffects: []
     });
 
-    const raster = renderer.renderRasterFrame({
+    const raster = await renderer.renderRasterFrame({
       frame: { height: 4, width: 4, x: 0, y: 0 },
       fullMap: { height: 4, width: 4 },
       hiddenLayers: ["labels", "ocean"],
@@ -1055,7 +1083,7 @@ describe("PixiMapRenderer lifecycle", () => {
     );
     const states = applicationState.stage?.children.find(child => child.label === "states");
 
-    for (const layer of ["compass", "coordinates", "goods", "trade"] as const) {
+    for (const layer of ["compass", "coordinates", "goods", "ocean", "texture", "trade"] as const) {
       renderer.setLayerVisibility(layer, false);
       expect(applicationState.stage?.children.find(child => child.label === layer)?.visible).toBe(false);
       const before = renderer.getSnapshot().commitSequence;

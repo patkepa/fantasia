@@ -31,6 +31,47 @@ const fragment = /* glsl */ `
   }
 `;
 
+const gpu = /* wgsl */ `
+  struct GlobalUniforms {
+    uProjectionMatrix: mat3x3<f32>,
+    uWorldTransformMatrix: mat3x3<f32>,
+    uWorldColorAlpha: vec4<f32>,
+    uResolution: vec2<f32>
+  }
+
+  @group(0) @binding(0) var<uniform> globalUniforms: GlobalUniforms;
+
+  struct LocalUniforms {
+    uTransformMatrix: mat3x3<f32>,
+    uColor: vec4<f32>,
+    uRound: f32
+  }
+
+  @group(1) @binding(0) var<uniform> localUniforms: LocalUniforms;
+
+  struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>
+  }
+
+  @vertex
+  fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aColor: vec4<f32>) -> VertexOutput {
+    var output: VertexOutput;
+    let matrix =
+      globalUniforms.uProjectionMatrix *
+      globalUniforms.uWorldTransformMatrix *
+      localUniforms.uTransformMatrix;
+    output.position = vec4<f32>((matrix * vec3<f32>(aPosition, 1.0)).xy, 0.0, 1.0);
+    output.color = aColor * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
+    return output;
+  }
+
+  @fragment
+  fn mainFragment(input: VertexOutput) -> @location(0) vec4<f32> {
+    return input.color;
+  }
+`;
+
 export class RetainedCellMesh {
   readonly mesh: Mesh<Geometry, Shader>;
   private readonly colorBuffer: Buffer;
@@ -75,7 +116,14 @@ export class RetainedCellMesh {
       indexBuffer,
       topology: "triangle-list"
     });
-    this.shader = Shader.from({ gl: { fragment, name: "retained-cell-fill", vertex }, resources: {} });
+    this.shader = Shader.from({
+      gl: { fragment, name: "retained-cell-fill", vertex },
+      gpu: {
+        fragment: { entryPoint: "mainFragment", source: gpu },
+        vertex: { entryPoint: "mainVertex", source: gpu }
+      },
+      resources: {}
+    });
     this.mesh = new Mesh({ geometry: this.geometry, shader: this.shader });
     this.mesh.cullable = true;
     this.mesh.eventMode = "none";

@@ -165,6 +165,7 @@ interface CellFillGeography {
   coastlineOverdrawWidth: number;
   lakePolygons: readonly PolygonPathPrimitive[];
   landPolygons: readonly PolygonPathPrimitive[];
+  oceanPositions: Float32Array;
 }
 
 interface CellMeshDisplay {
@@ -243,7 +244,9 @@ const INCREMENTAL_LAYERS = new Set<MapLayerId>([
   "rivers",
   "routes",
   "temperature",
+  "texture",
   "trade",
+  "ocean",
   "zones"
 ]);
 const STYLE_INCREMENTAL_LAYERS = new Set<MapLayerId>(["coastline", "lakes", "landmass"]);
@@ -258,8 +261,10 @@ const ASYNC_INCREMENTAL_LAYERS = new Set<MapLayerId>([
   "labels",
   "markers",
   "military",
+  "ocean",
   "relief",
-  "trade"
+  "trade",
+  "texture"
 ]);
 
 export interface PixiMapRendererOptions {
@@ -304,17 +309,19 @@ export interface PixiRasterFrameRequest {
 export class PixiMapRenderer implements MapRenderer {
   private app: Application | null = null;
   private adaptiveQualityTimer: ReturnType<typeof setTimeout> | null = null;
-  private backgroundTextureHandles = new Set<RendererResourceHandle<Texture>>();
+  private mapTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private burgTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private camera: MapCamera = { ...DEFAULT_MAP_CAMERA };
   private contextRecoveryRelease: (() => void) | null = null;
   private diagnostics = new RenderDiagnostics();
   private cellFillGeography: CellFillGeography | null = null;
   private coastalAssignmentEdges: {
+    cellFeatures: ArrayLike<number>;
     cellHeights: ArrayLike<number>;
     cellIds: ArrayLike<number>;
     cellVertices: readonly number[][];
     edges: readonly CoastalAssignmentEdge[];
+    features: MapRenderWorld["features"];
     vertexCells: readonly number[][];
     vertexPoints: readonly [number, number][];
   } | null = null;
@@ -346,6 +353,7 @@ export class PixiMapRenderer implements MapRenderer {
   private markerDisplays = new Map<number, { container: Container; baseSize: number; rescale: boolean }>();
   private markerTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private militaryTextureHandles = new Set<RendererResourceHandle<Texture>>();
+  private oceanTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private pickingIndex = new MapPickingIndex();
   private pickSceneSources: MapPickSceneSources = {};
   private rebuildSequence = 0;
@@ -779,10 +787,10 @@ export class PixiMapRenderer implements MapRenderer {
     return (this.app?.canvas as unknown as CanvasImageSource | undefined) ?? null;
   }
 
-  createOverview(
+  async createOverview(
     maxWidth: number,
     maxHeight: number
-  ): { height: number; source: CanvasImageSource; width: number } | null {
+  ): Promise<{ height: number; source: CanvasImageSource; width: number } | null> {
     if (!this.app || !this.world?.vertices?.p?.length) return null;
 
     const bounds = getWorldBounds(this.world);
@@ -806,6 +814,8 @@ export class PixiMapRenderer implements MapRenderer {
     }
     if (!source) return null;
 
+    await this.waitForGpuWork();
+
     return { height: source.height, source: source as unknown as CanvasImageSource, width: source.width };
   }
 
@@ -816,7 +826,7 @@ export class PixiMapRenderer implements MapRenderer {
     return { maxTextureSize: Number.isFinite(detected) && detected > 0 ? detected : 4096 };
   }
 
-  renderRasterFrame(request: PixiRasterFrameRequest): HTMLCanvasElement {
+  async renderRasterFrame(request: PixiRasterFrameRequest): Promise<HTMLCanvasElement> {
     if (!this.app || !this.world) throw new Error("Pixi renderer is not ready for raster export");
     const { frame, fullMap } = request;
     const resolution = Number.isFinite(request.resolution) && request.resolution > 0 ? request.resolution : 1;
@@ -858,12 +868,14 @@ export class PixiMapRenderer implements MapRenderer {
     this.updateLabelGroupVisibility();
 
     try {
-      return this.app.renderer.extract.canvas({
+      const canvas = this.app.renderer.extract.canvas({
         clearColor: request.transparentBackground ? "transparent" : this.semanticStyle.ocean.color,
         frame: new Rectangle(frame.x, frame.y, frame.width, frame.height),
         resolution,
         target: this.app.stage
       }) as HTMLCanvasElement;
+      await this.waitForGpuWork();
+      return canvas;
     } finally {
       for (const { display, visible } of visibilityOverrides) display.visible = visible;
       this.camera = previousCamera;
@@ -876,6 +888,13 @@ export class PixiMapRenderer implements MapRenderer {
       this.updateLabelGroupVisibility();
       this.app.render();
     }
+  }
+
+  private async waitForGpuWork(): Promise<void> {
+    const renderer = this.app?.renderer as unknown as {
+      gpu?: { device?: { queue?: { onSubmittedWorkDone?: () => Promise<void> } } };
+    };
+    await renderer.gpu?.device?.queue?.onSubmittedWorkDone?.();
   }
 
   private async initializeApplication(): Promise<void> {
@@ -1147,7 +1166,8 @@ export class PixiMapRenderer implements MapRenderer {
       coastlinePaths: scene.coastline.paths,
       coastlineOverdrawWidth: scene.coastlineOverdrawWidth,
       lakePolygons: scene.lakes.polygons,
-      landPolygons: scene.landmass.polygons
+      landPolygons: scene.landmass.polygons,
+      oceanPositions: scene.ocean.positions
     };
     return {
       bounds,
@@ -1277,7 +1297,15 @@ export class PixiMapRenderer implements MapRenderer {
     display.alpha = pattern.opacity;
     display.label = "ocean:pattern";
     container.addChild(display);
-    this.backgroundTextureHandles.add(handle);
+    this.oceanTextureHandles.add(handle);
+  }
+
+  private async buildOceanContainer(sequence: number): Promise<Container> {
+    const geography = this.cellFillGeography;
+    if (!geography) return this.createLayerPlaceholder("ocean");
+    const container = this.buildRectangleContainer("ocean", geography.oceanPositions, this.semanticStyle.ocean);
+    await this.decorateOceanContainer(sequence, container, geography.bounds);
+    return container;
   }
 
   private async buildTextureContainer(
@@ -1318,7 +1346,7 @@ export class PixiMapRenderer implements MapRenderer {
     sprite.label = "texture:image";
     container.addChild(sprite);
     if (style.mask !== "none") applyGeographyMask(container, style.mask, landPolygons, lakePolygons, bounds);
-    this.backgroundTextureHandles.add(handle);
+    this.mapTextureHandles.add(handle);
     return container;
   }
 
@@ -2259,7 +2287,7 @@ export class PixiMapRenderer implements MapRenderer {
     this.rendererFilters.clear();
     this.releaseResourceHandles(this.glyphAtlasHandles);
     this.releaseResourceHandles(this.coordinateGlyphAtlasHandles);
-    this.releaseResourceHandles(this.backgroundTextureHandles);
+    this.releaseResourceHandles(this.mapTextureHandles);
     this.releaseResourceHandles(this.burgTextureHandles);
     this.releaseResourceHandles(this.compassTextureHandles);
     this.releaseResourceHandles(this.goodsTextureHandles);
@@ -2267,6 +2295,7 @@ export class PixiMapRenderer implements MapRenderer {
     this.releaseResourceHandles(this.emblemTextureHandles);
     this.releaseResourceHandles(this.markerTextureHandles);
     this.releaseResourceHandles(this.militaryTextureHandles);
+    this.releaseResourceHandles(this.oceanTextureHandles);
     this.releaseResourceHandles(this.tradeTextureHandles);
   }
 
@@ -2347,9 +2376,11 @@ export class PixiMapRenderer implements MapRenderer {
     const cached = this.coastalAssignmentEdges;
     if (
       cached &&
+      cached.cellFeatures === world.cells.f &&
       cached.cellHeights === world.cells.h &&
       cached.cellIds === world.cells.i &&
       cached.cellVertices === world.cells.v &&
+      cached.features === world.features &&
       cached.vertexCells === world.vertices.c &&
       cached.vertexPoints === world.vertices.p
     ) {
@@ -2357,10 +2388,12 @@ export class PixiMapRenderer implements MapRenderer {
     }
     const edges = buildCoastalAssignmentEdges(world);
     this.coastalAssignmentEdges = {
+      cellFeatures: world.cells.f,
       cellHeights: world.cells.h,
       cellIds: world.cells.i,
       cellVertices: world.cells.v,
       edges,
+      features: world.features,
       vertexCells: world.vertices.c,
       vertexPoints: world.vertices.p
     };
@@ -2662,7 +2695,14 @@ export class PixiMapRenderer implements MapRenderer {
     if (layer === "labels") return this.buildLabelsContainer(sequence);
     if (layer === "markers") return this.buildMarkersContainer(sequence);
     if (layer === "military") return this.buildMilitaryContainer(sequence);
+    if (layer === "ocean") return this.buildOceanContainer(sequence);
     if (layer === "trade") return this.buildTradeContainer(sequence);
+    if (layer === "texture") {
+      const geography = this.cellFillGeography;
+      return geography
+        ? this.buildTextureContainer(sequence, geography.landPolygons, geography.lakePolygons, geography.bounds)
+        : Promise.resolve(this.createLayerPlaceholder("texture"));
+    }
     return this.buildReliefContainer(sequence);
   }
 
@@ -2755,11 +2795,19 @@ export class PixiMapRenderer implements MapRenderer {
       this.releaseResourceHandles(this.markerTextureHandles);
     }
     if (layer === "military") this.releaseResourceHandles(this.militaryTextureHandles);
+    if (layer === "ocean") {
+      this.stats.unsupportedOceanEffects = [];
+      this.releaseResourceHandles(this.oceanTextureHandles);
+    }
     if (layer === "trade") {
       this.tradeContainer = null;
       this.tradeDisplays.clear();
       this.tradeTextures.clear();
       this.releaseResourceHandles(this.tradeTextureHandles);
+    }
+    if (layer === "texture") {
+      this.stats.unsupportedTextureEffects = [];
+      this.releaseResourceHandles(this.mapTextureHandles);
     }
   }
 

@@ -133,7 +133,7 @@ async function renderFullMapRaster(
   const resolution = Math.min(requestedResolution, maxTextureSize / graphWidth, maxTextureSize / graphHeight);
   const hiddenLayers = getRasterExportHiddenLayers(options);
 
-  const base = renderPixiRasterFrame({
+  const base = await renderPixiRasterFrame({
     frame: { height: graphHeight, width: graphWidth, x: 0, y: 0 },
     fullMap: { height: graphHeight, width: graphWidth },
     hiddenLayers,
@@ -213,7 +213,7 @@ async function exportToPngTiles(): Promise<void> {
 
     status.innerHTML = "Rendering schema...";
     const schemaResolution = Math.min(1, maxTextureSize / graphWidth, maxTextureSize / graphHeight);
-    const schemaBase = renderPixiRasterFrame({
+    const schemaBase = await renderPixiRasterFrame({
       frame: { height: graphHeight, width: graphWidth, x: 0, y: 0 },
       fullMap: { height: graphHeight, width: graphWidth },
       resolution: schemaResolution
@@ -236,7 +236,7 @@ async function exportToPngTiles(): Promise<void> {
       const rowName = getTileRowLabel(tile.row);
       const tileName = `${rowName}${tile.column + 1}`;
       status.innerHTML = `Rendering tile ${tileName} (${tile.id} of ${plan.tiles.length})...`;
-      const pixiFrame = renderPixiRasterFrame({
+      const pixiFrame = await renderPixiRasterFrame({
         frame: tile.frame,
         fullMap: { height: graphHeight, width: graphWidth },
         resolution

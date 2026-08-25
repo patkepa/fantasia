@@ -1,3 +1,4 @@
+import type { Feature } from "@/generators/features";
 import type { PackedGraph } from "@/types/PackedGraph";
 import type { MapLayerId } from "../../core/layer-registry";
 import {
@@ -9,7 +10,8 @@ import {
 } from "../primitives";
 
 export interface CoastalAssignmentSource {
-  cells: Pick<PackedGraph["cells"], "h" | "i" | "v">;
+  cells: Pick<PackedGraph["cells"], "f" | "h" | "i" | "v">;
+  features: readonly Pick<Feature, "type">[];
   vertices: Pick<PackedGraph["vertices"], "c" | "p">;
 }
 
@@ -43,7 +45,13 @@ export function buildCoastalAssignmentEdges(source: CoastalAssignmentSource): Co
         adjacent => adjacent >= 0 && adjacent < source.cells.i.length && source.vertices.c[endId]?.includes(adjacent)
       );
       const hasLandNeighbor = adjacentCells?.some(adjacent => adjacent !== cellId && source.cells.h[adjacent] >= 20);
-      if (hasLandNeighbor) continue;
+      const bordersLake = adjacentCells?.some(
+        adjacent =>
+          adjacent !== cellId &&
+          source.cells.h[adjacent] < 20 &&
+          source.features[source.cells.f[adjacent]]?.type === "lake"
+      );
+      if (hasLandNeighbor || bordersLake) continue;
 
       const start = source.vertices.p[startId];
       const end = source.vertices.p[endId];
