@@ -223,20 +223,41 @@ const CELL_FILL_LAYERS: readonly CellFillLayer[] = ["biomes", "religions", "cult
 const INCREMENTAL_LAYERS = new Set<MapLayerId>([
   ...CELL_FILL_LAYERS,
   "borders",
+  "burgIcons",
   "cells",
+  "compass",
+  "coordinates",
+  "emblems",
+  "goods",
   "grid",
   "ice",
   "markets",
+  "military",
+  "labels",
+  "markers",
   "population",
   "precipitation",
   "relief",
   "rivers",
   "routes",
   "temperature",
+  "trade",
   "zones"
 ]);
 const LABEL_ATLAS_REFRESH_DELAY_MS = 100;
 const STATIC_INSTANCE_TILE_SIZE = 256;
+const ASYNC_INCREMENTAL_LAYERS = new Set<MapLayerId>([
+  "burgIcons",
+  "compass",
+  "coordinates",
+  "emblems",
+  "goods",
+  "labels",
+  "markers",
+  "military",
+  "relief",
+  "trade"
+]);
 
 export interface PixiMapRendererOptions {
   adaptiveQualityPolicy?: AdaptiveQualityPolicy;
@@ -281,6 +302,7 @@ export class PixiMapRenderer implements MapRenderer {
   private app: Application | null = null;
   private adaptiveQualityTimer: ReturnType<typeof setTimeout> | null = null;
   private backgroundTextureHandles = new Set<RendererResourceHandle<Texture>>();
+  private burgTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private camera: MapCamera = { ...DEFAULT_MAP_CAMERA };
   private contextRecoveryRelease: (() => void) | null = null;
   private diagnostics = new RenderDiagnostics();
@@ -294,6 +316,7 @@ export class PixiMapRenderer implements MapRenderer {
     vertexPoints: readonly [number, number][];
   } | null = null;
   private cellMeshes = new Map<CellFillLayer, CellMeshDisplay>();
+  private compassTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private coordinateGroupDisplays: CoordinateGroupDisplay[] = [];
   private coordinateLabelDisplays: CoordinateLabelDisplay[] = [];
   private coordinateLongitudeSpan = 0;
@@ -315,8 +338,11 @@ export class PixiMapRenderer implements MapRenderer {
   private glyphAtlasCache: GlyphAtlasCache;
   private glyphBudgetBytes: number;
   private glyphAtlasHandles = new Set<RendererResourceHandle<GlyphAtlasDescriptor>>();
+  private coordinateGlyphAtlasHandles = new Set<RendererResourceHandle<GlyphAtlasDescriptor>>();
+  private goodsTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private markerDisplays = new Map<number, { container: Container; baseSize: number; rescale: boolean }>();
-  private pointTextureHandles = new Set<RendererResourceHandle<Texture>>();
+  private markerTextureHandles = new Set<RendererResourceHandle<Texture>>();
+  private militaryTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private pickingIndex = new MapPickingIndex();
   private pickSceneSources: MapPickSceneSources = {};
   private rebuildSequence = 0;
@@ -338,9 +364,11 @@ export class PixiMapRenderer implements MapRenderer {
   private tradeContainer: Container | null = null;
   private tradeDisplays = new Map<number, Container>();
   private tradeSnapshot: TradeAnimationSnapshot = { highlight: null, markers: [] };
+  private tradeTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private tradeTextures = new Map<TradeMarkerType, Texture>();
   private tradeSubscriptionRelease: (() => void) | null = null;
   private textureCache: RendererResourceCache<Texture>;
+  private asyncLayerTasks = new Map<MapLayerId, Promise<void>>();
   private world: MapRenderWorld | null = null;
   private commitWaiters = new Set<{ after: number; resolve: (sequence: number) => void }>();
   private stats: PixiRendererSnapshot = {
@@ -571,6 +599,9 @@ export class PixiMapRenderer implements MapRenderer {
   setLayerVisibility(layer: MapLayerId, visible: boolean): void {
     if (this.layerVisibility.get(layer) === visible) return;
     this.layerVisibility.set(layer, visible);
+    // The controller synchronizes every visibility flag between mount and the first world render. There is no stage
+    // to update yet, so defer all work until that first build consumes the stored visibility state.
+    if (!this.world) return;
     let awaitingMaterialization = false;
     let materializedImmediately = false;
     if (layer === "trade" && !visible) clearTradeAnimation();
@@ -579,8 +610,8 @@ export class PixiMapRenderer implements MapRenderer {
       if (INCREMENTAL_LAYERS.has(layer)) this.replaceLayerContainer(layer, this.createLayerPlaceholder(layer));
       else this.scheduleHiddenLayerCleanup();
     } else if (this.dirtyLayers.has(layer)) {
-      if (layer === "relief" && this.world) {
-        void this.materializeReliefLayer();
+      if (ASYNC_INCREMENTAL_LAYERS.has(layer) && this.world) {
+        void this.materializeAsyncLayer(layer);
         awaitingMaterialization = true;
       } else if (INCREMENTAL_LAYERS.has(layer) && this.world) {
         this.rebuildLayers(new Set([layer]));
@@ -888,12 +919,7 @@ export class PixiMapRenderer implements MapRenderer {
 
   private resizeCanvas(viewport: ViewportSize, qualityMode: RenderQualityMode): void {
     if (!this.app || !this.surface) return;
-    const targetResolution = this.getResolution(viewport);
-    const resolution = selectAdaptiveResolution(
-      targetResolution,
-      qualityMode,
-      this.rendererOptions.adaptiveQualityPolicy ?? DEFAULT_ADAPTIVE_QUALITY_POLICY
-    );
+    const resolution = this.getAdaptiveResolution(viewport, qualityMode);
     this.app.renderer.resize(viewport.width, viewport.height, resolution);
     this.surface.style.height = `${viewport.height}px`;
     this.surface.style.width = `${viewport.width}px`;
@@ -921,18 +947,38 @@ export class PixiMapRenderer implements MapRenderer {
     if (!this.app || !this.surface) return false;
     let resized = false;
     if (this.qualityMode !== "interactive") {
-      this.resizeCanvas({ height: this.camera.height, width: this.camera.width }, "interactive");
-      resized = true;
+      const viewport = { height: this.camera.height, width: this.camera.width };
+      if (this.stats.resolution !== this.getAdaptiveResolution(viewport, "interactive")) {
+        this.resizeCanvas(viewport, "interactive");
+        resized = true;
+      } else {
+        this.qualityMode = "interactive";
+        this.stats.qualityMode = "interactive";
+      }
     }
     if (this.adaptiveQualityTimer !== null) clearTimeout(this.adaptiveQualityTimer);
     const policy = this.rendererOptions.adaptiveQualityPolicy ?? DEFAULT_ADAPTIVE_QUALITY_POLICY;
     this.adaptiveQualityTimer = setTimeout(() => {
       this.adaptiveQualityTimer = null;
       if (!this.app || !this.surface || this.qualityMode !== "interactive") return;
-      this.resizeCanvas({ height: this.camera.height, width: this.camera.width }, "settled");
+      const viewport = { height: this.camera.height, width: this.camera.width };
+      if (this.stats.resolution !== this.getAdaptiveResolution(viewport, "settled"))
+        this.resizeCanvas(viewport, "settled");
+      else {
+        this.qualityMode = "settled";
+        this.stats.qualityMode = "settled";
+      }
       this.scheduleLabelAtlasRefresh();
     }, policy.settleDelayMs);
     return resized;
+  }
+
+  private getAdaptiveResolution(viewport: ViewportSize, qualityMode: RenderQualityMode): number {
+    return selectAdaptiveResolution(
+      this.getResolution(viewport),
+      qualityMode,
+      this.rendererOptions.adaptiveQualityPolicy ?? DEFAULT_ADAPTIVE_QUALITY_POLICY
+    );
   }
 
   private buildFillContainer(layer: CellFillLayer): Container {
@@ -1361,7 +1407,7 @@ export class PixiMapRenderer implements MapRenderer {
       atlas.release();
       return container;
     }
-    this.glyphAtlasHandles.add(atlas);
+    this.coordinateGlyphAtlasHandles.add(atlas);
 
     for (const group of scene.groups) {
       const groupContainer = new Container();
@@ -1629,7 +1675,7 @@ export class PixiMapRenderer implements MapRenderer {
     sprite.scale.set(scene.scale);
     sprite.alpha = scene.opacity;
     container.addChild(sprite);
-    this.pointTextureHandles.add(handle);
+    this.compassTextureHandles.add(handle);
     return container;
   }
 
@@ -1664,7 +1710,7 @@ export class PixiMapRenderer implements MapRenderer {
     }
     this.tradeContainer = container;
     this.tradeTextures = new Map([...handles].map(([type, handle]) => [type, handle.value]));
-    for (const handle of handles.values()) this.pointTextureHandles.add(handle);
+    for (const handle of handles.values()) this.tradeTextureHandles.add(handle);
     this.syncTradeDisplays(this.tradeSnapshot);
     return container;
   }
@@ -1856,7 +1902,7 @@ export class PixiMapRenderer implements MapRenderer {
       plate.cullable = true;
       container.addChild(plate);
     }
-    for (const handle of textures.values()) this.pointTextureHandles.add(handle);
+    for (const handle of textures.values()) this.goodsTextureHandles.add(handle);
     container.alpha = style.opacity;
     return container;
   }
@@ -1962,7 +2008,7 @@ export class PixiMapRenderer implements MapRenderer {
       }
       container.addChild(tile);
     }
-    for (const handle of textures.values()) this.pointTextureHandles.add(handle);
+    for (const handle of textures.values()) this.militaryTextureHandles.add(handle);
     container.alpha = style.opacity;
     return container;
   }
@@ -2106,7 +2152,7 @@ export class PixiMapRenderer implements MapRenderer {
         container.addChild(display);
       }
     }
-    for (const handle of textures.values()) this.pointTextureHandles.add(handle);
+    for (const handle of textures.values()) this.burgTextureHandles.add(handle);
     return container;
   }
 
@@ -2149,7 +2195,7 @@ export class PixiMapRenderer implements MapRenderer {
         rescale: symbol.rescale
       });
     }
-    for (const handle of textures.values()) this.pointTextureHandles.add(handle);
+    for (const handle of textures.values()) this.markerTextureHandles.add(handle);
     this.updateMarkerScales();
     return container;
   }
@@ -2208,10 +2254,16 @@ export class PixiMapRenderer implements MapRenderer {
     for (const filter of this.rendererFilters) filter.destroy();
     this.rendererFilters.clear();
     this.releaseResourceHandles(this.glyphAtlasHandles);
+    this.releaseResourceHandles(this.coordinateGlyphAtlasHandles);
     this.releaseResourceHandles(this.backgroundTextureHandles);
+    this.releaseResourceHandles(this.burgTextureHandles);
+    this.releaseResourceHandles(this.compassTextureHandles);
+    this.releaseResourceHandles(this.goodsTextureHandles);
     this.releaseResourceHandles(this.reliefTextureHandles);
     this.releaseResourceHandles(this.emblemTextureHandles);
-    this.releaseResourceHandles(this.pointTextureHandles);
+    this.releaseResourceHandles(this.markerTextureHandles);
+    this.releaseResourceHandles(this.militaryTextureHandles);
+    this.releaseResourceHandles(this.tradeTextureHandles);
   }
 
   private releaseResourceHandles<T>(handles: Set<RendererResourceHandle<T>>): void {
@@ -2452,7 +2504,9 @@ export class PixiMapRenderer implements MapRenderer {
     const layers = new Set(
       batch.invalidations.flatMap(invalidation => ("layer" in invalidation ? [invalidation.layer] : []))
     );
-    if (layers.delete("relief")) await this.materializeReliefLayer();
+    for (const layer of ASYNC_INCREMENTAL_LAYERS) {
+      if (layers.delete(layer)) await this.materializeAsyncLayer(layer);
+    }
     if (layers.size) {
       this.rebuildLayers(layers);
       return;
@@ -2472,6 +2526,7 @@ export class PixiMapRenderer implements MapRenderer {
       if (!container) continue;
       this.replaceLayerContainer(layer, container);
       this.dirtyLayers.delete(layer);
+      this.updateAsyncLayerStatistics(layer, container);
     }
     this.pickingIndex.updateLayers(
       this.world,
@@ -2510,24 +2565,40 @@ export class PixiMapRenderer implements MapRenderer {
     return null;
   }
 
-  private async materializeReliefLayer(): Promise<void> {
-    if (!this.app || !this.world || !(this.layerVisibility.get("relief") ?? true)) return;
+  private materializeAsyncLayer(layer: MapLayerId): Promise<void> {
+    if (!ASYNC_INCREMENTAL_LAYERS.has(layer)) return Promise.resolve();
+    const previous = this.asyncLayerTasks.get(layer) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(() => this.materializeAsyncLayerNow(layer));
+    this.asyncLayerTasks.set(layer, task);
+    void task.finally(() => {
+      if (this.asyncLayerTasks.get(layer) === task) this.asyncLayerTasks.delete(layer);
+    });
+    return task;
+  }
+
+  private async materializeAsyncLayerNow(layer: MapLayerId): Promise<void> {
+    if (!this.app || !this.world || !(this.layerVisibility.get(layer) ?? true)) return;
     const sequence = this.rebuildSequence;
     try {
-      const previous = this.layerContainers.get("relief");
-      if (previous) this.destroyLayerContainer("relief", previous);
-      const container = await this.buildReliefContainer(sequence);
-      if (sequence !== this.rebuildSequence || !(this.layerVisibility.get("relief") ?? true)) {
-        this.releaseResourceHandles(this.reliefTextureHandles);
+      const previous = this.layerContainers.get(layer);
+      if (previous) this.destroyLayerContainer(layer, previous);
+      const container = await this.buildAsyncIncrementalLayer(layer, sequence);
+      if (sequence !== this.rebuildSequence) {
         container.destroy({ children: true });
         return;
       }
-      this.replaceLayerContainer("relief", container);
-      this.dirtyLayers.delete("relief");
+      if (!(this.layerVisibility.get(layer) ?? true)) {
+        this.releaseAsyncLayerResources(layer);
+        container.destroy({ children: true });
+        return;
+      }
+      this.replaceLayerContainer(layer, container);
+      this.dirtyLayers.delete(layer);
+      this.updateAsyncLayerStatistics(layer, container);
       this.pickingIndex.updateLayers(
         this.world,
         this.semanticStyle,
-        ["relief"],
+        [layer],
         this.getVisibleLayers(),
         this.pickSceneSources
       );
@@ -2537,7 +2608,32 @@ export class PixiMapRenderer implements MapRenderer {
       this.stats.pickingEntries = this.pickingIndex.getSize();
       this.commitSceneChange("content");
     } catch (error) {
-      console.error("Unable to materialize relief layer", error);
+      console.error(`Unable to materialize ${layer} layer`, error);
+    }
+  }
+
+  private buildAsyncIncrementalLayer(layer: MapLayerId, sequence: number): Promise<Container> {
+    if (layer === "burgIcons") return this.buildBurgIconsContainer(sequence);
+    if (layer === "compass") return this.buildCompassContainer(sequence);
+    if (layer === "coordinates") return this.buildCoordinatesContainer(sequence);
+    if (layer === "emblems") return this.buildEmblemsContainer(sequence);
+    if (layer === "goods") return this.buildGoodsContainer(sequence);
+    if (layer === "labels") return this.buildLabelsContainer(sequence);
+    if (layer === "markers") return this.buildMarkersContainer(sequence);
+    if (layer === "military") return this.buildMilitaryContainer(sequence);
+    if (layer === "trade") return this.buildTradeContainer(sequence);
+    return this.buildReliefContainer(sequence);
+  }
+
+  private updateAsyncLayerStatistics(layer: MapLayerId, container: Container): void {
+    if (layer === "emblems") {
+      this.stats.emblemSymbols = container.children.reduce(
+        (total, group) => total + group.children.reduce((count, tile) => count + tile.children.length, 0),
+        0
+      );
+    }
+    if (layer === "labels") {
+      this.stats.labelGlyphs = this.labelDisplays.reduce((total, display) => total + display.textDisplays.length, 0);
     }
   }
 
@@ -2560,7 +2656,7 @@ export class PixiMapRenderer implements MapRenderer {
         this.cellMeshes.delete(layer as CellFillLayer);
       }
     }
-    if (layer === "relief") this.releaseResourceHandles(this.reliefTextureHandles);
+    this.releaseAsyncLayerResources(layer);
     this.destroyContainerFilters(container);
     container.removeFromParent();
     const staleIndex = this.app?.stage.children.indexOf(container) ?? -1;
@@ -2578,6 +2674,52 @@ export class PixiMapRenderer implements MapRenderer {
       for (const child of display.children) if (child instanceof Container) visit(child);
     };
     visit(container);
+  }
+
+  private releaseAsyncLayerResources(layer: MapLayerId): void {
+    if (layer === "burgIcons") this.releaseResourceHandles(this.burgTextureHandles);
+    if (layer === "compass") this.releaseResourceHandles(this.compassTextureHandles);
+    if (layer === "coordinates") {
+      this.coordinateGroupDisplays = [];
+      this.coordinateLabelDisplays = [];
+      this.coordinateLongitudeSpan = 0;
+      this.stats.coordinateLabels = 0;
+      this.stats.coordinateLines = 0;
+      this.stats.missingCoordinateFonts = [];
+      this.stats.unsupportedCoordinateEffects = [];
+      this.releaseResourceHandles(this.coordinateGlyphAtlasHandles);
+    }
+    if (layer === "emblems") {
+      this.emblemGroupDisplays = [];
+      this.emblemSourceCache.clear();
+      this.releaseResourceHandles(this.emblemTextureHandles);
+    }
+    if (layer === "labels") {
+      if (this.labelAtlasRefreshTimeoutId !== null) clearTimeout(this.labelAtlasRefreshTimeoutId);
+      this.labelAtlasRefreshTimeoutId = null;
+      this.labelAtlasRefreshSequence++;
+      this.labelAtlasDisplays = [];
+      this.labelAtlasQueuedResolution = 0;
+      this.labelDisplays = [];
+      this.labelGroupDisplays = [];
+      this.stats.labelGlyphs = 0;
+      this.stats.missingLabelFonts = [];
+      this.stats.unsupportedLabelEffects = [];
+      this.releaseResourceHandles(this.glyphAtlasHandles);
+    }
+    if (layer === "relief") this.releaseResourceHandles(this.reliefTextureHandles);
+    if (layer === "goods") this.releaseResourceHandles(this.goodsTextureHandles);
+    if (layer === "markers") {
+      this.markerDisplays.clear();
+      this.releaseResourceHandles(this.markerTextureHandles);
+    }
+    if (layer === "military") this.releaseResourceHandles(this.militaryTextureHandles);
+    if (layer === "trade") {
+      this.tradeContainer = null;
+      this.tradeDisplays.clear();
+      this.tradeTextures.clear();
+      this.releaseResourceHandles(this.tradeTextureHandles);
+    }
   }
 
   private scheduleHiddenLayerCleanup(): void {
