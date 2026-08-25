@@ -67,10 +67,16 @@ function getRendererPreference(): "webgl" | "webgpu" {
   return new URLSearchParams(window.location.search).get("renderer") === "webgpu" ? "webgpu" : "webgl";
 }
 
+const activatePixiMap = (): void => {
+  removeLegacyRendererGroups();
+  document.getElementById("map")?.classList.add("pixi-renderer-active");
+};
+
 const getInstance = async (): Promise<PixiMapRenderer> => {
   instancePromise ??= import("./pixi-map-renderer").then(({ PixiMapRenderer }) => {
     instance = new PixiMapRenderer({
       deviceMemoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+      onFirstFrame: activatePixiMap,
       onSceneChange: dispatchSceneChange,
       preference: getRendererPreference(),
       recordPerformance: (name, duration) => window.MapPerformance?.record(name, duration),
@@ -99,6 +105,9 @@ const dispatchSceneChange = (kind: PixiSceneChangeKind): void => {
 const prepareSurface = (): HTMLElement => {
   const map = document.getElementById("map");
   if (!map) throw new Error("Cannot mount the Pixi renderer without #map");
+  // The SVG follows this absolutely-positioned surface in DOM order. Make its backdrop transparent as soon as the
+  // canvas is mounted, rather than waiting for the first render callback, so it cannot briefly cover Pixi with black.
+  map.classList.add("pixi-renderer-surface-ready");
   const surface = document.getElementById("pixi-map-renderer") ?? document.createElement("div");
   surface.id = "pixi-map-renderer";
   surface.style.pointerEvents = "none";
@@ -271,8 +280,7 @@ const api: PixiRendererControllerApi = {
     syncVisibility(renderer);
     lastRendererStyle = getMapRendererStyle(style);
     await renderer.render(getWorld(), lastRendererStyle, coalesceInvalidations([{ kind: "world" }]));
-    removeLegacyRendererGroups();
-    document.getElementById("map")?.classList.add("pixi-renderer-active");
+    activatePixiMap();
   },
   whenCommitted: after => instance?.whenCommitted(after) ?? Promise.resolve(0),
   syncCamera: () => {

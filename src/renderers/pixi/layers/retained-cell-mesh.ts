@@ -72,12 +72,21 @@ const gpu = /* wgsl */ `
   }
 `;
 
+interface SharedPositionBuffer {
+  buffer: Buffer;
+  references: number;
+  resourceId: string;
+  resources?: RendererResourceTracker;
+}
+
 export class RetainedCellMesh {
   readonly mesh: Mesh<Geometry, Shader>;
   private readonly colorBuffer: Buffer;
   private readonly geometry: Geometry;
   private readonly shader: Shader;
   private readonly resourceIds: readonly string[];
+  private readonly sharedPositionBuffer: SharedPositionBuffer;
+  private static readonly positionBuffers = new WeakMap<RetainedCellTopology, SharedPositionBuffer>();
   private static sequence = 0;
 
   constructor(
@@ -88,15 +97,10 @@ export class RetainedCellMesh {
   ) {
     const scene = buildCellFillScene(topology, source, layer);
     const resourcePrefix = `retained-cells:${++RetainedCellMesh.sequence}`;
-    this.resourceIds = [`${resourcePrefix}:positions`, `${resourcePrefix}:colors`, `${resourcePrefix}:indices`];
-    resources?.acquire(this.resourceIds[0], "geometry", scene.positions.byteLength);
-    resources?.acquire(this.resourceIds[1], "geometry", scene.colors?.byteLength ?? 0);
-    resources?.acquire(this.resourceIds[2], "geometry", scene.indices.byteLength);
-    const positionBuffer = new Buffer({
-      data: scene.positions,
-      label: "retained-cell-positions",
-      usage: BufferUsage.VERTEX | BufferUsage.STATIC
-    });
+    this.resourceIds = [`${resourcePrefix}:colors`, `${resourcePrefix}:indices`];
+    this.sharedPositionBuffer = RetainedCellMesh.acquirePositionBuffer(topology, resources);
+    resources?.acquire(this.resourceIds[0], "geometry", scene.colors?.byteLength ?? 0);
+    resources?.acquire(this.resourceIds[1], "geometry", scene.indices.byteLength);
     this.colorBuffer = new Buffer({
       data: scene.colors,
       label: "retained-cell-colors",
@@ -111,7 +115,7 @@ export class RetainedCellMesh {
     this.geometry = new Geometry({
       attributes: {
         aColor: { buffer: this.colorBuffer, format: "float32x4" },
-        aPosition: { buffer: positionBuffer, format: "float32x2" }
+        aPosition: { buffer: this.sharedPositionBuffer.buffer, format: "float32x2" }
       },
       indexBuffer,
       topology: "triangle-list"
@@ -138,7 +142,40 @@ export class RetainedCellMesh {
     this.mesh.removeFromParent();
     this.mesh.destroy();
     this.geometry.destroy();
+    this.colorBuffer.destroy();
     this.shader.destroy();
+    RetainedCellMesh.releasePositionBuffer(this.topology, this.sharedPositionBuffer);
     for (const resourceId of this.resourceIds) this.resources?.release(resourceId);
+  }
+
+  private static acquirePositionBuffer(
+    topology: RetainedCellTopology,
+    resources?: RendererResourceTracker
+  ): SharedPositionBuffer {
+    let shared = RetainedCellMesh.positionBuffers.get(topology);
+    if (!shared) {
+      const resourceId = `retained-cells:positions:${++RetainedCellMesh.sequence}`;
+      resources?.acquire(resourceId, "geometry", topology.positions.byteLength);
+      shared = {
+        buffer: new Buffer({
+          data: topology.positions,
+          label: "retained-cell-positions",
+          usage: BufferUsage.VERTEX | BufferUsage.STATIC
+        }),
+        references: 0,
+        resourceId,
+        resources
+      };
+      RetainedCellMesh.positionBuffers.set(topology, shared);
+    }
+    shared.references++;
+    return shared;
+  }
+
+  private static releasePositionBuffer(topology: RetainedCellTopology, shared: SharedPositionBuffer): void {
+    if (--shared.references > 0) return;
+    shared.buffer.destroy();
+    shared.resources?.release(shared.resourceId);
+    RetainedCellMesh.positionBuffers.delete(topology);
   }
 }

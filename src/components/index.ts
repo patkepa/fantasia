@@ -10,7 +10,6 @@ import "./hotkeys";
 import { destroyDialog, updateDialog } from "./dialog/dialog-helpers";
 import { initializeLayerControlsRuntime } from "./layers/layer-controls-runtime";
 import { mountOptionsPanel } from "./options/options-panel";
-import { initializeMapStyleControls } from "./style/map-style-controls";
 import { mountStylePanel } from "./style/style-panel";
 import { initializeStylePresetsRuntime } from "./style/style-presets-controller";
 import "./dialog/sorting";
@@ -35,7 +34,6 @@ Object.assign(window, {
 mountStylePanel();
 mountOptionsPanel();
 initializeLayerControlsRuntime();
-initializeMapStyleControls();
 void initializeStylePresetsRuntime();
 
 // Load the workspace as soon as the DOM is available. Waiting for `window.load`

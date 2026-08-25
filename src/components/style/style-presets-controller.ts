@@ -22,7 +22,14 @@ export function bindStylePresets(nextTarget: StylePresetsApi): () => void {
 
 /** Starts the DOM-bound presets runtime once its panel markup is available. */
 export function initializeStylePresetsRuntime(): Promise<void> {
-  runtimePromise ??= import("./style-presets-runtime").then(() => undefined);
+  // The style-control facade is only needed when presets or the editor are used. Keep it out of the initial
+  // application chunk, but install it before the preset runtime reads or applies a saved style.
+  runtimePromise ??= import("./map-style-controls")
+    .then(({ initializeMapStyleControls }) => {
+      initializeMapStyleControls();
+      return import("./style-presets-runtime");
+    })
+    .then(() => undefined);
   return runtimePromise;
 }
 

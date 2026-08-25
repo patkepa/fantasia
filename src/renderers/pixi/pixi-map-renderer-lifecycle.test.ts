@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const applicationState = vi.hoisted(() => ({
   assetLoad: vi.fn(async () => ({ destroy: vi.fn(), height: 8, width: 8 })),
   assetUnload: vi.fn(async () => undefined),
+  bufferCreate: vi.fn(),
+  bufferDestroy: vi.fn(),
   bitmapFontInstall: vi.fn(),
   bitmapFontUninstall: vi.fn(),
   bitmapTextCreate: vi.fn(),
@@ -39,9 +41,18 @@ vi.mock("pixi.js", () => {
       this.children.push(...children);
       return children[0];
     }
+    addChildAt(child: DisplayObject, index: number) {
+      this.children.splice(index, 0, child);
+      return child;
+    }
     destroy() {}
     removeChildren() {
       return this.children.splice(0);
+    }
+    removeChild(child: DisplayObject) {
+      const index = this.children.indexOf(child);
+      if (index !== -1) this.children.splice(index, 1);
+      return child;
     }
     removeFromParent() {}
     sortChildren() {
@@ -93,8 +104,14 @@ vi.mock("pixi.js", () => {
 
   class Buffer {
     data: unknown;
-    constructor(options: { data: unknown }) {
+    label: string | undefined;
+    constructor(options: { data: unknown; label?: string }) {
       this.data = options.data;
+      this.label = options.label;
+      applicationState.bufferCreate(this.label);
+    }
+    destroy() {
+      applicationState.bufferDestroy(this.label);
     }
     update() {}
   }
@@ -239,6 +256,8 @@ describe("PixiMapRenderer lifecycle", () => {
     applicationState.hiddenAtExtract = [];
     applicationState.assetLoad.mockClear();
     applicationState.assetUnload.mockClear();
+    applicationState.bufferCreate.mockClear();
+    applicationState.bufferDestroy.mockClear();
     applicationState.bitmapFontInstall.mockClear();
     applicationState.bitmapFontUninstall.mockClear();
     applicationState.bitmapTextCreate.mockClear();
@@ -503,12 +522,31 @@ describe("PixiMapRenderer lifecycle", () => {
       coalesceInvalidations([{ kind: "world" }])
     );
 
-    expect(renderer.getSnapshot()).toMatchObject({ resourceCount: 18, textureCacheEntries: 3 });
+    expect(renderer.getSnapshot()).toMatchObject({ resourceCount: 14, textureCacheEntries: 3 });
     expect(applicationState.assetLoad).toHaveBeenCalledTimes(3);
 
     renderer.clear();
     expect(renderer.getSnapshot()).toMatchObject({ resourceBytes: 0, resourceCount: 0, textureCacheEntries: 0 });
     expect(applicationState.assetUnload).toHaveBeenCalledTimes(3);
+    renderer.destroy();
+  });
+
+  it("shares immutable retained-cell positions across thematic fills", async () => {
+    const renderer = new PixiMapRenderer();
+    await renderer.mount(createSurface());
+    await renderer.render(
+      STATIC_VIEWER_WORLD,
+      structuredClone(DEFAULT_PIXI_MAP_STYLE),
+      coalesceInvalidations([{ kind: "world" }])
+    );
+
+    expect(
+      applicationState.bufferCreate.mock.calls.filter(([label]) => label === "retained-cell-positions")
+    ).toHaveLength(1);
+    renderer.clear();
+    expect(
+      applicationState.bufferDestroy.mock.calls.filter(([label]) => label === "retained-cell-positions")
+    ).toHaveLength(1);
     renderer.destroy();
   });
 
@@ -518,7 +556,7 @@ describe("PixiMapRenderer lifecycle", () => {
     await renderer.mount(createSurface());
     await renderer.render(STATIC_VIEWER_WORLD, style, coalesceInvalidations([{ kind: "world" }]));
 
-    expect(renderer.getSnapshot()).toMatchObject({ cells: 2, enabled: true, resourceCount: 17 });
+    expect(renderer.getSnapshot()).toMatchObject({ cells: 2, enabled: true, resourceCount: 13 });
     expect(applicationState.stage?.children.map(child => child.label)).toEqual([
       "ocean",
       "landmass",
@@ -580,6 +618,8 @@ describe("PixiMapRenderer lifecycle", () => {
   });
 
   it("renders synchronous map geometry before an optional texture resolves", async () => {
+    const onFirstFrame = vi.fn();
+    const onSceneChange = vi.fn();
     let resolveTexture: ((texture: never) => void) | undefined;
     const delayedTexture = new Promise<never>(resolve => {
       resolveTexture = resolve;
@@ -587,7 +627,7 @@ describe("PixiMapRenderer lifecycle", () => {
     applicationState.assetLoad
       .mockImplementationOnce(() => delayedTexture)
       .mockImplementation(() => Promise.resolve({ destroy: vi.fn(), height: 8, width: 8 }));
-    const renderer = new PixiMapRenderer();
+    const renderer = new PixiMapRenderer({ onFirstFrame, onSceneChange });
     const style = structuredClone(DEFAULT_PIXI_MAP_STYLE);
     style.texture.href = "delayed-texture.png";
     await renderer.mount(createSurface());
@@ -597,12 +637,15 @@ describe("PixiMapRenderer lifecycle", () => {
       0
     );
     expect(applicationState.stage?.children.find(child => child.label === "texture")?.children).toHaveLength(0);
+    expect(onFirstFrame).toHaveBeenCalledOnce();
+    expect(onSceneChange).not.toHaveBeenCalled();
 
     resolveTexture?.({ destroy: vi.fn(), height: 8, width: 8 } as never);
     await render;
     expect(applicationState.stage?.children.find(child => child.label === "texture")?.children.length).toBeGreaterThan(
       0
     );
+    expect(onSceneChange).toHaveBeenCalledWith("content");
     renderer.destroy();
   });
 
@@ -694,6 +737,37 @@ describe("PixiMapRenderer lifecycle", () => {
     expect(applicationState.stage?.children.find(child => child.label === "routes")).not.toBe(previousRoutes);
     expect(applicationState.assetLoad).toHaveBeenCalledTimes(assetLoads);
     expect(renderer.getSnapshot().commitSequence).toBe(2);
+    renderer.destroy();
+  });
+
+  it("updates state assignments through retained state geometry", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      queueMicrotask(() => callback(performance.now()));
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    const renderer = new PixiMapRenderer();
+    const world = createWorld();
+    world.states.push({ color: "#0044aa" } as never);
+    const style = structuredClone(DEFAULT_PIXI_MAP_STYLE);
+    await renderer.mount(createSurface());
+    await renderer.render(world, style, coalesceInvalidations([{ kind: "world" }]));
+    const states = applicationState.stage?.children.find(child => child.label === "states") as
+      | { children: Array<{ label: string }> }
+      | undefined;
+    const previousHalo = states?.children.find(child => child.label === "statesHalo");
+    const before = renderer.getSnapshot().commitSequence;
+
+    world.cells.state[0] = 2;
+    renderer.queueRender(world, style, { cellIds: [0], kind: "assignment", layer: "states" });
+    await renderer.whenCommitted(before);
+
+    const updatedStates = applicationState.stage?.children.find(child => child.label === "states") as
+      | { children: Array<{ label: string }> }
+      | undefined;
+    expect(updatedStates).toBe(states);
+    expect(updatedStates?.children.find(child => child.label === "statesHalo")).not.toBe(previousHalo);
+    expect(updatedStates?.children.filter(child => child.label === "statesHalo")).toHaveLength(1);
     renderer.destroy();
   });
 

@@ -273,6 +273,7 @@ export interface PixiMapRendererOptions {
   adaptiveQualityPolicy?: AdaptiveQualityPolicy;
   deviceMemoryGb?: number;
   getDevicePixelRatio?: () => number;
+  onFirstFrame?: () => void;
   onSceneChange?: (kind: PixiSceneChangeKind) => void;
   pickTolerancePixels?: number;
   preference?: "webgl" | "webgpu";
@@ -603,8 +604,8 @@ export class PixiMapRenderer implements MapRenderer {
       reliefSprites,
       renderer: this.app.renderer.constructor.name
     };
-    this.commitSceneChange("content");
-    this.recordPerformance("pixi:rebuild", buildDuration);
+    this.rendererOptions.onFirstFrame?.();
+    this.recordPerformance("pixi:first-frame", buildDuration);
 
     const initialLayerTasks = [...asyncLayers].map(([layer, task]) =>
       this.materializeInitialAsyncLayer(layer, task, sequence)
@@ -620,6 +621,9 @@ export class PixiMapRenderer implements MapRenderer {
     // Rendering above lets the browser present synchronous map geometry while these promises wait for fonts and
     // textures. Keeping the await preserves the renderer's established fully-materialized completion contract.
     await Promise.all([...initialLayerTasks, initialOceanTask]);
+    if (sequence !== this.rebuildSequence) return;
+    this.commitSceneChange("content");
+    this.recordPerformance("pixi:rebuild", performance.now() - started);
   }
 
   setLayerVisibility(layer: MapLayerId, visible: boolean): void {
@@ -2906,7 +2910,6 @@ export class PixiMapRenderer implements MapRenderer {
     if (!this.app) return false;
     const world = this.getWorld();
     const layers = new Set(assignments.map(invalidation => invalidation.layer as CellFillLayer));
-    if (layers.has("states")) return false;
     for (const layer of layers) {
       const target = this.cellMeshes.get(layer);
       if (!target) return false;
@@ -2928,6 +2931,7 @@ export class PixiMapRenderer implements MapRenderer {
         ...this.getCellFillSource(layer),
         fallbackColor: style.fallbackColor
       });
+      if (layer === "states") this.refreshStateHalo(target.container);
     }
     // Semantic areas are picked directly from the live cell assignments. They do not have per-cell pick entries, so
     // rebuilding the full spatial index here only adds work for every brush sample.
@@ -2936,6 +2940,16 @@ export class PixiMapRenderer implements MapRenderer {
     this.app.render();
     this.commitSceneChange("content");
     return true;
+  }
+
+  private refreshStateHalo(stateContainer: Container): void {
+    const previous = stateContainer.children.find(child => child.label === "statesHalo");
+    if (previous instanceof Container) {
+      this.destroyContainerFilters(previous);
+      stateContainer.removeChild(previous);
+      previous.destroy({ children: true });
+    }
+    stateContainer.addChildAt(this.buildStateHaloContainer(), 0);
   }
 
   private commitSceneChange(kind: PixiSceneChangeKind): void {
