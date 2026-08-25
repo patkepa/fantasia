@@ -48,6 +48,8 @@ declare const prompt: (text: string, options: PromptOptions, callback: (value: s
 let defaultCellTypeFilter: "all" | "land" | "water" = "all";
 const history = new HeightmapHistory();
 let linearFeatureStart: { cell: number; point: { x: number; y: number } } | null = null;
+let stateByGridCell = new Uint16Array();
+let expandedTerrainStateClaims = new Uint16Array();
 
 function open(options?: { mode?: string; tool?: string }): void {
   const { mode, tool } = options || {};
@@ -614,6 +616,20 @@ export const createAvailableLandCellFinder = (cells: {
   };
 };
 
+/** Records a country's claim when a terrain edit converts water into land. */
+export function claimExpandedTerrainForState(
+  stateClaims: Uint16Array,
+  previousHeights: ArrayLike<number>,
+  nextHeights: ArrayLike<number>,
+  cellIds: readonly number[],
+  stateId: number
+): void {
+  if (!stateId) return;
+  for (const cellId of cellIds) {
+    if (previousHeights[cellId] < 20 && nextHeights[cellId] >= 20) stateClaims[cellId] = stateId;
+  }
+}
+
 function restoreRiskedData(): void {
   INFO && console.group("Edit Heightmap");
   TIME && console.time("restoreRiskedData");
@@ -735,7 +751,7 @@ function restoreRiskedData(): void {
     pack.cells.pop[i] = pop[g];
     pack.cells.routes[i] = routes[g];
     pack.cells.s[i] = s[g];
-    pack.cells.state[i] = state[g];
+    pack.cells.state[i] = state[g] || expandedTerrainStateClaims[g];
     pack.cells.province[i] = province[g];
     pack.cells.religion[i] = religion[g];
   }
@@ -933,7 +949,7 @@ function setHistoryButtonsDisabled(undo: boolean, redo: boolean): void {
 }
 
 function updateHistory(noStat?: string): void {
-  history.commit(grid.cells.h);
+  history.commit(grid.cells.h, expandedTerrainStateClaims);
   setHistoryButtonsDisabled(!history.canUndo, !history.canRedo);
   if (!noStat) {
     updateStatistics();
@@ -947,6 +963,7 @@ function restoreHistory(step: number): void {
   setHistoryButtonsDisabled(!history.canUndo, !history.canRedo);
   if (!heights) return;
   grid.cells.h = heights;
+  expandedTerrainStateClaims = history.currentStateClaims?.slice() ?? new Uint16Array(grid.cells.h.length);
   mockHeightmap();
   updateStatistics();
 
@@ -955,7 +972,10 @@ function restoreHistory(step: number): void {
 
 // restart edits from 1st step
 function restartHistory(): void {
-  history.reset(grid.cells.h);
+  stateByGridCell = new Uint16Array(grid.cells.h.length);
+  for (const cellId of pack.cells.i) stateByGridCell[pack.cells.g[cellId]] = pack.cells.state[cellId];
+  expandedTerrainStateClaims = new Uint16Array(grid.cells.h.length);
+  history.reset(grid.cells.h, expandedTerrainStateClaims);
   setHistoryButtonsDisabled(!history.canUndo, !history.canRedo);
   updateStatistics();
   if (document.getElementById("preview")) drawHeightmapPreview();
@@ -1216,6 +1236,13 @@ function placeLinearFeature(this: SVGElement, event: any): void {
     if (cellTypeFilter === "water" && heights[i] >= 20) continue;
     selection.push(i);
   }
+  claimExpandedTerrainForState(
+    expandedTerrainStateClaims,
+    heights,
+    changedHeights,
+    selection,
+    stateByGridCell[fromCell]
+  );
   const mutation = commitHeightValues(heights, changedHeights, selection);
   mockHeightmapSelection(mutation.affectedCellIds);
   updateHistory();
@@ -1413,6 +1440,7 @@ function changeHeightForSelection(selection: number[], start: number): void {
       working[i] = working[i] < 15 ? working[i] : limit(working[i] + power / 1.6 - Math.random() * power);
     });
 
+  claimExpandedTerrainForState(expandedTerrainStateClaims, heights, working, selection, stateByGridCell[start]);
   const mutation = commitHeightValues(heights, working, selection);
   mockHeightmapSelection(mutation.affectedCellIds);
 }

@@ -14,7 +14,7 @@ document.getElementById = (() =>
     classList: { add: () => {}, remove: () => {}, contains: () => false },
     style: {}
   }) as unknown as HTMLElement) as typeof document.getElementById;
-const { createAvailableLandCellFinder } = await import("./heightmap-editor");
+const { claimExpandedTerrainForState, createAvailableLandCellFinder } = await import("./heightmap-editor");
 document.getElementById = originalGetElementById;
 
 describe("createAvailableLandCellFinder", () => {
@@ -46,5 +46,23 @@ describe("createAvailableLandCellFinder", () => {
     const findCell = createAvailableLandCellFinder({ h: [10], p: [[0, 0]] });
 
     expect(findCell(0, 0)).toBeUndefined();
+  });
+});
+
+describe("claimExpandedTerrainForState", () => {
+  it("assigns only cells that cross sea level to the state at the drag origin", () => {
+    const claims = new Uint16Array(3);
+
+    claimExpandedTerrainForState(claims, [19, 20, 18], [20, 24, 19], [0, 1, 2], 4);
+
+    expect(claims).toEqual(Uint16Array.from([4, 0, 0]));
+  });
+
+  it("does not claim terrain when the drag starts in neutral territory", () => {
+    const claims = new Uint16Array(1);
+
+    claimExpandedTerrainForState(claims, [19], [20], [0], 0);
+
+    expect(claims).toEqual(Uint16Array.from([0]));
   });
 });

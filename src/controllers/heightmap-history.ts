@@ -1,9 +1,14 @@
 export class HeightmapHistory {
   private snapshots: Uint8Array[] = [];
+  private stateClaimSnapshots: Uint16Array[] = [];
   private position = 0;
 
   get current(): Uint8Array | undefined {
     return this.snapshots[this.position - 1];
+  }
+
+  get currentStateClaims(): Uint16Array | undefined {
+    return this.stateClaimSnapshots[this.position - 1];
   }
 
   get previousPosition(): number {
@@ -22,9 +27,11 @@ export class HeightmapHistory {
     return this.position < this.snapshots.length;
   }
 
-  commit(heights: Uint8Array): void {
+  commit(heights: Uint8Array, stateClaims?: Uint16Array): void {
     this.snapshots = this.snapshots.slice(0, this.position);
+    this.stateClaimSnapshots = this.stateClaimSnapshots.slice(0, this.position);
     this.snapshots.push(heights.slice());
+    this.stateClaimSnapshots.push(stateClaims?.slice() ?? new Uint16Array(heights.length));
     this.position = this.snapshots.length;
   }
 
@@ -34,14 +41,16 @@ export class HeightmapHistory {
     return this.current?.slice();
   }
 
-  reset(heights: Uint8Array): void {
+  reset(heights: Uint8Array, stateClaims?: Uint16Array): void {
     this.snapshots = [];
+    this.stateClaimSnapshots = [];
     this.position = 0;
-    this.commit(heights);
+    this.commit(heights, stateClaims);
   }
 
   clear(): void {
     this.snapshots = [];
+    this.stateClaimSnapshots = [];
     this.position = 0;
   }
 }

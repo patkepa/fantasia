@@ -26,4 +26,13 @@ describe("HeightmapHistory", () => {
     restored[1] = 8;
     expect(history.current).toEqual(Uint8Array.from([1, 2]));
   });
+
+  it("restores terrain state claims with the corresponding height snapshot", () => {
+    const history = new HeightmapHistory();
+    history.reset(Uint8Array.from([19]), Uint16Array.from([0]));
+    history.commit(Uint8Array.from([20]), Uint16Array.from([7]));
+
+    history.restore(history.previousPosition);
+    expect(history.currentStateClaims).toEqual(Uint16Array.from([0]));
+  });
 });
