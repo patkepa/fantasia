@@ -47,6 +47,21 @@ describe("RendererResourceCache", () => {
     second.release();
   });
 
+  it("keeps only current unused entries in its eviction order", async () => {
+    const { cache, destroy } = createCache(10);
+    const first = await cache.acquire("first", async () => ({ bytes: 4, name: "first" }));
+    first.release();
+    const second = await cache.acquire("second", async () => ({ bytes: 4, name: "second" }));
+    second.release();
+
+    const recentFirst = await cache.acquire("first", async () => ({ bytes: 4, name: "first" }));
+    recentFirst.release();
+    await cache.acquire("third", async () => ({ bytes: 6, name: "third" }));
+
+    expect(destroy).toHaveBeenCalledWith(second.value, "second");
+    expect(destroy).not.toHaveBeenCalledWith(first.value, "first");
+  });
+
   it("destroys every retained entry and returns accounting to baseline on clear", async () => {
     const { cache, destroy, tracker } = createCache(100);
     await cache.acquire("first", async () => ({ bytes: 6, name: "first" }));

@@ -1314,11 +1314,13 @@ function selectStateOnMapClick(this: SVGElement, event: MouseEvent): void {
   const point = getPixiMapPointAtClient(event.clientX, event.clientY);
   if (!point) return;
   const i = findCell(point.x, point.y);
-  if (pack.cells.h[i!] < 20) return;
+  const body = ensureEl("statesBodySection");
+  if (pack.cells.h[i!] < 20) {
+    selectTerritoryEditorRow(body, null);
+    return;
+  }
 
   const state = statesAssignment?.get(i!) ?? pack.cells.state[i!];
-
-  const body = ensureEl("statesBodySection");
   selectTerritoryEditorRow(body, body.querySelector(`div[data-id='${state}']`));
 }
 

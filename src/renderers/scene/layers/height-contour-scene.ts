@@ -27,6 +27,7 @@ import {
   scaleSequential
 } from "d3";
 import type { Grid } from "@/types/grid";
+import { type PathCommand, PathCommandContext } from "../path-commands";
 import type { SceneBounds, SceneRevision } from "../primitives";
 import type { HeightBandStyle, HeightLayerStyle } from "../styles";
 import type { MapBounds } from "./feature-shapes";
@@ -63,8 +64,8 @@ const COLOR_SCHEMES: Readonly<Record<string, (value: number) => string>> = {
 
 export interface HeightContourBand {
   color: string;
+  commands: readonly PathCommand[];
   height: number;
-  path: string;
   terraceColor: string | null;
 }
 
@@ -138,7 +139,7 @@ export function getHeightColorScheme(name: string): (value: number) => string {
 function buildGroup(
   scope: HeightContourGroup["scope"],
   style: HeightBandStyle,
-  paths: readonly (string | undefined)[],
+  paths: readonly (readonly PathCommand[] | undefined)[],
   baseColor: string | null
 ): HeightContourGroup {
   const bands: HeightContourBand[] = [];
@@ -146,13 +147,13 @@ function buildGroup(
   const end = scope === "ocean" ? 19 : 100;
   const terracing = Math.max(0, style.terracing) / 10;
   for (let height = start; height <= end; height++) {
-    const path = paths[height];
-    if (!path || path.length < 10) continue;
+    const commands = paths[height];
+    if (!commands?.length) continue;
     const fill = getHeightColor(height, style.scheme);
     bands.push({
       color: fill,
+      commands,
       height,
-      path,
       terraceColor: terracing ? (color(fill)?.darker(terracing).toString() ?? fill) : null
     });
   }
@@ -162,8 +163,8 @@ function buildGroup(
 function buildContourPaths(
   { cells, vertices }: HeightContourSource,
   style: HeightLayerStyle
-): readonly (string | undefined)[] {
-  const paths: (string | undefined)[] = new Array(101);
+): readonly (readonly PathCommand[] | undefined)[] {
+  const paths: (PathCommand[] | undefined)[] = new Array(101);
   const used = new Uint8Array(cells.i.length);
   const heights = orderCellsByHeight(cells.i, cells.h);
   appendScopePaths("ocean", style.ocean, heights, cells, vertices, used, paths);
@@ -187,7 +188,7 @@ function appendScopePaths(
   cells: HeightContourSource["cells"],
   vertices: HeightContourSource["vertices"],
   used: Uint8Array,
-  paths: (string | undefined)[]
+  paths: (PathCommand[] | undefined)[]
 ): void {
   if (scope === "ocean" && !("render" in style && style.render)) return;
   const skip = Math.max(0, Number(style.skip) || 0) + 1;
@@ -210,8 +211,13 @@ function appendScopePaths(
     const points = chain
       .filter((_vertex, index) => index % simplification === 0)
       .map(vertexId => vertices.p[vertexId] as readonly [number, number]);
-    const path = lineGenerator(points);
-    if (path) paths[height] = `${paths[height] ?? ""}${path}`;
+    const context = new PathCommandContext();
+    lineGenerator.context(context as never)(points);
+    if (!context.commands.length) continue;
+
+    const commands = paths[height];
+    if (commands) commands.push(...context.commands);
+    else paths[height] = [...context.commands];
   }
 }
 

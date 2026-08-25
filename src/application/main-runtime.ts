@@ -72,9 +72,9 @@ getUnitSettings();
 // set debug options
 const PRODUCTION = Boolean(location.hostname && location.hostname !== "localhost" && location.hostname !== "127.0.0.1");
 const DEBUG = JSON.safeParse(localStorage.getItem("debug") || "") || {};
-const INFO = true;
-const TIME = true;
-const WARN = true;
+const INFO = Boolean(DEBUG.info);
+const TIME = Boolean(DEBUG.time);
+const WARN = Boolean(DEBUG.warn);
 const ERROR = true;
 
 // detect device

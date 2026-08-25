@@ -191,13 +191,16 @@ export class MapPickingIndex {
       minX: mapPoint.x - searchRadius,
       minY: mapPoint.y - searchRadius
     };
-    const candidates = [...this.spatialByLayer.values()]
-      .flatMap(spatial => spatial.query(bounds))
-      .filter(entry => isEntryVisible(entry, query, cameraScale))
-      .map(entry => ({ distance: distanceToEntry(mapPoint, entry, cameraScale), entry }))
-      .filter(candidate => Number.isFinite(candidate.distance) && candidate.distance <= query.tolerance)
-      .sort((left, right) => compareCandidates(left, right, this.layerPriority));
-    const candidate = candidates[0];
+    let candidate: { distance: number; entry: MapPickEntry } | null = null;
+    for (const spatial of this.spatialByLayer.values()) {
+      for (const entry of spatial.query(bounds)) {
+        if (!isEntryVisible(entry, query, cameraScale)) continue;
+        const distance = distanceToEntry(mapPoint, entry, cameraScale);
+        if (!Number.isFinite(distance) || distance > query.tolerance) continue;
+        const next = { distance, entry };
+        if (!candidate || compareCandidates(next, candidate, this.layerPriority) < 0) candidate = next;
+      }
+    }
     if (candidate) {
       const { entry, distance } = candidate;
       return {
@@ -522,8 +525,12 @@ export function buildMapPickEntries(
 class BoundsSpatialIndex<T> {
   private readonly buckets = new Map<string, number[]>();
   private items: T[] = [];
+  private readonly oversized: number[] = [];
 
-  constructor(private readonly bucketSize = 64) {}
+  constructor(
+    private readonly bucketSize = 64,
+    private readonly maxBucketsPerItem = 256
+  ) {}
 
   get size(): number {
     return this.items.length;
@@ -534,16 +541,16 @@ class BoundsSpatialIndex<T> {
     this.items = [...items];
     items.forEach((item, index) => {
       const bounds = getBounds(item);
-      for (
-        let column = Math.floor(bounds.minX / this.bucketSize);
-        column <= Math.floor(bounds.maxX / this.bucketSize);
-        column++
-      ) {
-        for (
-          let row = Math.floor(bounds.minY / this.bucketSize);
-          row <= Math.floor(bounds.maxY / this.bucketSize);
-          row++
-        ) {
+      const minColumn = Math.floor(bounds.minX / this.bucketSize);
+      const maxColumn = Math.floor(bounds.maxX / this.bucketSize);
+      const minRow = Math.floor(bounds.minY / this.bucketSize);
+      const maxRow = Math.floor(bounds.maxY / this.bucketSize);
+      if ((maxColumn - minColumn + 1) * (maxRow - minRow + 1) > this.maxBucketsPerItem) {
+        this.oversized.push(index);
+        return;
+      }
+      for (let column = minColumn; column <= maxColumn; column++) {
+        for (let row = minRow; row <= maxRow; row++) {
           const key = `${column}:${row}`;
           const bucket = this.buckets.get(key);
           if (bucket) bucket.push(index);
@@ -554,7 +561,7 @@ class BoundsSpatialIndex<T> {
   }
 
   query(bounds: Bounds): T[] {
-    const indexes = new Set<number>();
+    const indexes = new Set(this.oversized);
     for (
       let column = Math.floor(bounds.minX / this.bucketSize);
       column <= Math.floor(bounds.maxX / this.bucketSize);
@@ -568,12 +575,13 @@ class BoundsSpatialIndex<T> {
         for (const index of this.buckets.get(`${column}:${row}`) ?? []) indexes.add(index);
       }
     }
-    return [...indexes].sort((left, right) => left - right).map(index => this.items[index]);
+    return [...indexes].map(index => this.items[index]);
   }
 
   clear(): void {
     this.buckets.clear();
     this.items = [];
+    this.oversized.length = 0;
   }
 }
 

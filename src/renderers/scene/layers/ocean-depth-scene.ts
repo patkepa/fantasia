@@ -1,15 +1,16 @@
 import { curveBasisClosed, line } from "d3";
 import type { Grid } from "@/types/grid";
 import { clipPoly } from "@/utils";
+import { type PathCommand, PathCommandContext } from "../path-commands";
 import type { SceneBounds, SceneRevision } from "../primitives";
 import type { OceanLayerStyle } from "../styles";
 import type { MapBounds } from "./feature-shapes";
 
 export interface OceanDepthBand {
   color: string;
+  commands: readonly PathCommand[];
   depth: number;
   opacity: number;
-  path: string;
 }
 
 export interface OceanDepthScene {
@@ -39,8 +40,8 @@ export function buildOceanDepthScene(
   const opacity = limits.length ? style.bands.opacity / limits.length : 0;
   return {
     bands: limits.flatMap(depth => {
-      const path = paths.get(depth);
-      return path ? [{ color: style.bands.color, depth, opacity, path }] : [];
+      const commands = paths.get(depth);
+      return commands?.length ? [{ color: style.bands.color, commands, depth, opacity }] : [];
     }),
     bounds: { maxX: bounds.width, maxY: bounds.height, minX: 0, minY: 0 },
     layer: "ocean",
@@ -80,12 +81,16 @@ export function resolveOceanDepthLimits(value: string, cellTypes: ArrayLike<numb
   return limits.length ? limits : [-1];
 }
 
-function buildDepthPaths(source: OceanDepthSource, bounds: MapBounds, limits: readonly number[]): Map<number, string> {
+function buildDepthPaths(
+  source: OceanDepthSource,
+  bounds: MapBounds,
+  limits: readonly number[]
+): Map<number, PathCommand[]> {
   const { cells, vertices } = source;
   const selected = new Set(limits);
   const used = new Uint8Array(cells.i.length);
   const lineGenerator = line<readonly [number, number]>().curve(curveBasisClosed);
-  const paths = new Map<number, string>();
+  const paths = new Map<number, PathCommand[]>();
 
   for (const cellId of cells.i) {
     const depth = cells.t[cellId];
@@ -105,8 +110,13 @@ function buildDepthPaths(source: OceanDepthSource, bounds: MapBounds, limits: re
       bounds.width,
       bounds.height
     ) as [number, number][];
-    const path = lineGenerator(points);
-    if (path) paths.set(depth, `${paths.get(depth) ?? ""}${path}`);
+    const context = new PathCommandContext();
+    lineGenerator.context(context as never)(points);
+    if (!context.commands.length) continue;
+
+    const commands = paths.get(depth);
+    if (commands) commands.push(...context.commands);
+    else paths.set(depth, [...context.commands]);
   }
   return paths;
 }

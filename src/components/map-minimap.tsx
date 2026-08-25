@@ -9,6 +9,7 @@ import "./map-minimap.css";
 
 const MAX_OVERVIEW_WIDTH = 320;
 const MAX_OVERVIEW_HEIGHT = 200;
+const OVERVIEW_REFRESH_DELAY_MS = 350;
 
 export interface MinimapViewport {
   height: number;
@@ -78,12 +79,23 @@ export function MapMinimap(): React.JSX.Element {
     };
 
     let overviewTimer: number | null = null;
+    let idleCallback: number | null = null;
     const scheduleOverview = () => {
-      if (overviewTimer !== null) return;
+      if (overviewTimer !== null || idleCallback !== null) return;
       overviewTimer = window.setTimeout(() => {
         overviewTimer = null;
+        if ("requestIdleCallback" in window) {
+          idleCallback = window.requestIdleCallback(
+            () => {
+              idleCallback = null;
+              updateOverview();
+            },
+            { timeout: 1_500 }
+          );
+          return;
+        }
         updateOverview();
-      }, 120);
+      }, OVERVIEW_REFRESH_DELAY_MS);
     };
 
     const updateScaleBarPosition = () => fitScaleBar(getViewportSurface().scaleBar, svgWidth, svgHeight);
@@ -108,6 +120,7 @@ export function MapMinimap(): React.JSX.Element {
     return () => {
       if (window.updateMinimap === updateViewport) delete window.updateMinimap;
       if (overviewTimer !== null) window.clearTimeout(overviewTimer);
+      if (idleCallback !== null && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);
       resizeObserver.disconnect();
       window.removeEventListener(PIXI_RENDERER_SCENE_CHANGE_EVENT, scheduleOverview);
       window.removeEventListener("map:generated", updateMap);

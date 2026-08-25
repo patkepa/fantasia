@@ -102,7 +102,8 @@ async function getStylePreset(desiredPreset: string): Promise<[string, LegacySty
 
 async function fetchSystemPreset(preset: string): Promise<LegacyStylePreset> {
   try {
-    const res = await fetch(`./styles/${preset}.json?v=${VERSION}`);
+    const res = await fetch(`${import.meta.env.BASE_URL}styles/${preset}.json?v=${VERSION}`);
+    if (!res.ok) throw new Error(`Style preset request failed with status ${res.status}`);
     return (await res.json()) as LegacyStylePreset;
   } catch (err) {
     throw new Error(`Cannot fetch style preset ${preset}`, { cause: err });

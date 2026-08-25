@@ -9,7 +9,7 @@ import { dragLegendBox } from "@/renderers/draw-legend";
 import { ensureMapInteractionSurface } from "@/renderers/interaction/map-interaction-overlay";
 import { getPixiMapPointAtClient, pickPixiRenderer } from "@/renderers/pixi/pixi-renderer-controller";
 import { debounce, findClosestCell } from "@/utils";
-import { selectCountry } from "./country-selection";
+import { clearSelectedCountry, selectCountry } from "./country-selection";
 import { buildMapContext } from "./map-context";
 import { handleMouseMove } from "./map-tooltip";
 import { applyZoomBehavior } from "./zoom";
@@ -119,6 +119,7 @@ function inspectMapPoint(event: MouseEvent, hit: MapHit | null): void {
   if (!point) return;
   const cellId = findClosestCell(point.x, point.y, undefined, pack);
   if (cellId === undefined) return;
+  if (pack.cells.h[cellId] < 20) clearSelectedCountry();
   const countryId = pack.cells.state[cellId];
   if (!event.shiftKey && getWorkspaceMode() === "view" && countryId && selectCountry(countryId)) {
     setViewSessionSelection({ cellId, domainId: String(countryId), domainKind: "state" });

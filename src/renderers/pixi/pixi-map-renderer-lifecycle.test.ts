@@ -119,6 +119,9 @@ vi.mock("pixi.js", () => {
     lineTo() {
       return this;
     }
+    quadraticCurveTo() {
+      return this;
+    }
     moveTo() {
       return this;
     }
@@ -549,10 +552,7 @@ describe("PixiMapRenderer lifecycle", () => {
     expect(applicationState.stage?.children.find(child => child.label === "ocean")?.children.length).toBe(2);
     expect(applicationState.stage?.children.find(child => child.label === "texture")?.children.length).toBe(2);
     expect(applicationState.stage?.children.find(child => child.label === "height")?.children.length).toBe(2);
-    expect(applicationState.svgCreate).toHaveBeenCalled();
-    for (const [source] of applicationState.svgCreate.mock.calls) {
-      expect(source).toMatch(/^<svg\b[^>]*>[\s\S]*<\/svg>$/);
-    }
+    expect(applicationState.svgCreate).not.toHaveBeenCalled();
     expect(renderer.getSnapshot()).toMatchObject({
       missingTextureAssets: [],
       textureCacheEntries: 4,

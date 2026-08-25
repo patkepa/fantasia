@@ -78,6 +78,7 @@ import { type RetainedCellTopology, RetainedCellTopologyCache } from "../scene/l
 import { buildRiverScene, buildRouteScene } from "../scene/layers/river-route-scene";
 import { buildCompassScene } from "../scene/layers/static-overlay-scene";
 import { buildZoneScene } from "../scene/layers/zone-scene";
+import type { PathCommand } from "../scene/path-commands";
 import type { LinePathPrimitive, PointSymbolInstancePrimitive, PolygonPathPrimitive } from "../scene/primitives";
 import type { MapRenderWorld } from "../scene/render-world";
 import {
@@ -407,88 +408,96 @@ export class PixiMapRenderer implements MapRenderer {
     this.clearStage();
     if (this.surface) this.surface.style.display = "block";
     const geography = this.buildGeographyContainers();
-    await this.decorateOceanContainer(sequence, geography.ocean, geography.bounds);
-    if (sequence !== this.rebuildSequence) return;
-    const textureContainer = await this.buildVisibleLayerAsync("texture", () =>
+    const oceanDecoration = this.decorateOceanContainer(sequence, geography.ocean, geography.bounds);
+    const textureContainer = this.buildVisibleLayerAsync("texture", () =>
       this.buildTextureContainer(sequence, geography.landPolygons, geography.lakePolygons, geography.bounds)
     );
-    if (sequence !== this.rebuildSequence) return;
+    const coordinatesContainer = this.buildVisibleLayerAsync("coordinates", () =>
+      this.buildCoordinatesContainer(sequence)
+    );
+    const compassContainer = this.buildVisibleLayerAsync("compass", () => this.buildCompassContainer(sequence));
+    const reliefContainer = this.buildVisibleLayerAsync("relief", () => this.buildReliefContainer(sequence));
+    const tradeContainer = this.buildVisibleLayerAsync("trade", () => this.buildTradeContainer(sequence));
+    const goodsContainer = this.buildVisibleLayerAsync("goods", () => this.buildGoodsContainer(sequence));
+    const emblemsContainer = this.buildVisibleLayerAsync("emblems", () => this.buildEmblemsContainer(sequence));
+    const labelsContainer = this.buildVisibleLayerAsync("labels", () => this.buildLabelsContainer(sequence));
+    const burgContainer = this.buildVisibleLayerAsync("burgIcons", () => this.buildBurgIconsContainer(sequence));
+    const militaryContainer = this.buildVisibleLayerAsync("military", () => this.buildMilitaryContainer(sequence));
+    const markerContainer = this.buildVisibleLayerAsync("markers", () => this.buildMarkersContainer(sequence));
+
     const heightContainer = this.buildVisibleLayer("height", () =>
       this.buildHeightContainer(geography.landPolygons, geography.bounds)
     );
     const biomeContainer = this.buildVisibleLayer("biomes", () => this.buildFillContainer("biomes"));
     const cellsContainer = this.buildVisibleLayer("cells", () => this.buildCellsContainer());
     const gridContainer = this.buildVisibleLayer("grid", () => this.buildGridContainer());
-    const coordinatesContainer = await this.buildVisibleLayerAsync("coordinates", () =>
-      this.buildCoordinatesContainer(sequence)
-    );
-    if (sequence !== this.rebuildSequence) return;
-    const compassContainer = await this.buildVisibleLayerAsync("compass", () => this.buildCompassContainer(sequence));
-    if (sequence !== this.rebuildSequence) return;
     const riverContainer = this.buildVisibleLayer("rivers", () => this.buildRiversContainer());
-    const reliefContainer = await this.buildVisibleLayerAsync("relief", () => this.buildReliefContainer(sequence));
-    if (sequence !== this.rebuildSequence) return;
     const religionContainer = this.buildVisibleLayer("religions", () => this.buildFillContainer("religions"));
     const cultureContainer = this.buildVisibleLayer("cultures", () => this.buildFillContainer("cultures"));
     const stateContainer = this.buildVisibleLayer("states", () => this.buildFillContainer("states"));
     const provinceContainer = this.buildVisibleLayer("provinces", () => this.buildFillContainer("provinces"));
-    const tradeContainer = await this.buildVisibleLayerAsync("trade", () => this.buildTradeContainer(sequence));
-    if (sequence !== this.rebuildSequence) return;
     const zoneContainer = this.buildVisibleLayer("zones", () => this.buildZonesContainer());
     const borderContainer = this.buildVisibleLayer("borders", () => this.buildBordersContainer());
     const routeContainer = this.buildVisibleLayer("routes", () => this.buildRoutesContainer());
     const temperatureContainer = this.buildVisibleLayer("temperature", () => this.buildTemperatureContainer());
     const iceContainer = this.buildVisibleLayer("ice", () => this.buildIceContainer());
-    const goodsContainer = await this.buildVisibleLayerAsync("goods", () => this.buildGoodsContainer(sequence));
-    if (sequence !== this.rebuildSequence) return;
     const marketsContainer = this.buildVisibleLayer("markets", () => this.buildMarketsContainer());
     const precipitationContainer = this.buildVisibleLayer("precipitation", () => this.buildPrecipitationContainer());
     const populationContainer = this.buildVisibleLayer("population", () => this.buildPopulationContainer());
-    const emblemsContainer = await this.buildVisibleLayerAsync("emblems", () => this.buildEmblemsContainer(sequence));
-    if (sequence !== this.rebuildSequence) return;
-    const labelsContainer = await this.buildVisibleLayerAsync("labels", () => this.buildLabelsContainer(sequence));
-    if (sequence !== this.rebuildSequence) return;
-    const burgContainer = await this.buildVisibleLayerAsync("burgIcons", () => this.buildBurgIconsContainer(sequence));
-    if (sequence !== this.rebuildSequence) return;
-    const militaryContainer = await this.buildVisibleLayerAsync("military", () =>
-      this.buildMilitaryContainer(sequence)
-    );
-    if (sequence !== this.rebuildSequence) return;
-    const markerContainer = await this.buildVisibleLayerAsync("markers", () => this.buildMarkersContainer(sequence));
+    const preparedLayers = Promise.all([
+      textureContainer,
+      coordinatesContainer,
+      compassContainer,
+      reliefContainer,
+      tradeContainer,
+      goodsContainer,
+      emblemsContainer,
+      labelsContainer,
+      burgContainer,
+      militaryContainer,
+      markerContainer,
+      oceanDecoration
+    ]);
+    // Asset failures are reported in visual layer order. Keep all concurrent work observed while the map texture,
+    // which is the first required layer, settles.
+    void preparedLayers.catch(() => undefined);
+    await textureContainer;
+    const [texture, coordinates, compass, relief, trade, goods, emblems, labels, burgs, military, markers] =
+      await preparedLayers;
     if (sequence !== this.rebuildSequence) return;
     this.app.stage.addChild(
       geography.ocean,
       geography.landmass,
-      textureContainer,
+      texture,
       heightContainer,
       geography.lakes,
       biomeContainer,
       cellsContainer,
       gridContainer,
-      coordinatesContainer,
-      compassContainer,
+      coordinates,
+      compass,
       riverContainer,
-      reliefContainer,
+      relief,
       religionContainer,
       cultureContainer,
       stateContainer,
       provinceContainer,
-      tradeContainer,
+      trade,
       zoneContainer,
       borderContainer,
       routeContainer,
       temperatureContainer,
       geography.coastline,
       iceContainer,
-      goodsContainer,
+      goods,
       marketsContainer,
       precipitationContainer,
       populationContainer,
-      emblemsContainer,
-      labelsContainer,
-      burgContainer,
-      militaryContainer,
-      markerContainer
+      emblems,
+      labels,
+      burgs,
+      military,
+      markers
     );
     this.layerContainers = new Map(
       this.app.stage.children
@@ -498,8 +507,8 @@ export class PixiMapRenderer implements MapRenderer {
     if (this.semanticStyle.filter) this.applyPhysicalFilter(this.app.stage, this.semanticStyle.filter);
     this.applyLayerOrder();
     const burgSymbols = this.getWorld().burgs.filter(burg => burg.i && !burg.removed && burg.group).length;
-    const markerSymbols = markerContainer.children.length;
-    const reliefSprites = reliefContainer.children.length;
+    const markerSymbols = markers.children.length;
+    const reliefSprites = relief.children.length;
     const batches = this.app.stage.children.reduce((total, child) => total + Math.max(1, child.children.length), 0);
     this.pickingIndex.replace(world, this.semanticStyle, this.getVisibleLayers());
 
@@ -517,7 +526,7 @@ export class PixiMapRenderer implements MapRenderer {
       buildDuration,
       burgSymbols,
       cells: world.cells.i.length,
-      emblemSymbols: emblemsContainer.children.reduce((total, group) => total + group.children.length, 0),
+      emblemSymbols: emblems.children.reduce((total, group) => total + group.children.length, 0),
       enabled: true,
       labelGlyphs: this.labelDisplays.reduce((total, display) => total + display.textDisplays.length, 0),
       markerSymbols,
@@ -1047,17 +1056,19 @@ export class PixiMapRenderer implements MapRenderer {
       const groupContainer = new Container();
       groupContainer.label = `height:${group.scope}`;
       groupContainer.alpha = group.opacity;
-      let svg = "";
+      const context = new GraphicsContext();
       if (group.baseColor) {
-        svg += `<rect x="0" y="0" width="${bounds.width}" height="${bounds.height}" fill="${group.baseColor}"/>`;
+        context.rect(0, 0, bounds.width, bounds.height).fill({ color: group.baseColor });
       }
       for (const band of group.bands) {
         if (band.terraceColor) {
-          svg += `<path d="${band.path}" transform="translate(.7 1.4)" fill="${band.terraceColor}"/>`;
+          tracePathCommands(context, band.commands, 0.7, 1.4);
+          context.fill({ color: band.terraceColor });
         }
-        svg += `<path d="${band.path}" fill="${band.color}"/>`;
+        tracePathCommands(context, band.commands);
+        context.fill({ color: band.color });
       }
-      if (svg) groupContainer.addChild(new Graphics().svg(wrapSvgFragment(svg)));
+      if (group.baseColor || group.bands.length) groupContainer.addChild(new Graphics(context));
       if (group.filter && !this.applyPhysicalFilter(groupContainer, group.filter)) {
         this.stats.unsupportedHeightEffects = [
           ...this.stats.unsupportedHeightEffects,
@@ -1085,10 +1096,12 @@ export class PixiMapRenderer implements MapRenderer {
       );
       this.stats.unsupportedOceanEffects = [];
       if (scene.bands.length) {
-        const bands = scene.bands
-          .map(band => `<path d="${band.path}" fill="${band.color}" fill-opacity="${band.opacity}"/>`)
-          .join("");
-        const graphic = new Graphics().svg(wrapSvgFragment(bands));
+        const context = new GraphicsContext();
+        for (const band of scene.bands) {
+          tracePathCommands(context, band.commands);
+          context.fill({ alpha: band.opacity, color: band.color });
+        }
+        const graphic = new Graphics(context);
         graphic.label = "ocean:depth-bands";
         if (
           this.semanticStyle.ocean.bands.filter &&
@@ -1917,25 +1930,27 @@ export class PixiMapRenderer implements MapRenderer {
     );
     const textures = new Map<string, RendererResourceHandle<Texture>>();
     try {
-      for (const [key, symbol] of customSymbols) {
-        const icon = symbol.icon ?? `icon-${symbol.shape}`;
-        const source = this.rendererOptions.resolveSymbolIcon?.(icon, {
-          fill: symbol.fill,
-          fillOpacity: symbol.fillOpacity,
-          stroke: symbol.stroke,
-          strokeWidth: symbol.strokeWidth,
-          viewBox: symbol.shape.startsWith("watabou-") ? undefined : "-5 -5 10 10"
-        });
-        if (!source) {
-          this.assertAssetAvailable("burg symbol", icon);
-          continue;
-        }
-        try {
-          textures.set(key, await this.textureCache.acquire(source, () => Assets.load<Texture>(source)));
-        } catch {
-          this.assertAssetAvailable("burg symbol", icon);
-        }
-      }
+      await Promise.all(
+        [...customSymbols].map(async ([key, symbol]) => {
+          const icon = symbol.icon ?? `icon-${symbol.shape}`;
+          const source = this.rendererOptions.resolveSymbolIcon?.(icon, {
+            fill: symbol.fill,
+            fillOpacity: symbol.fillOpacity,
+            stroke: symbol.stroke,
+            strokeWidth: symbol.strokeWidth,
+            viewBox: symbol.shape.startsWith("watabou-") ? undefined : "-5 -5 10 10"
+          });
+          if (!source) {
+            this.assertAssetAvailable("burg symbol", icon);
+            return;
+          }
+          try {
+            textures.set(key, await this.textureCache.acquire(source, () => Assets.load<Texture>(source)));
+          } catch {
+            this.assertAssetAvailable("burg symbol", icon);
+          }
+        })
+      );
     } catch (error) {
       for (const handle of textures.values()) handle.release();
       if (sequence !== this.rebuildSequence) return container;
@@ -2525,10 +2540,6 @@ export class PixiMapRenderer implements MapRenderer {
 
 const MAP_LAYER_IDS = new Set(MAP_LAYER_REGISTRY.map(layer => layer.id));
 
-function wrapSvgFragment(fragment: string): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg">${fragment}</svg>`;
-}
-
 function isMapLayerId(label: unknown): label is MapLayerId {
   return typeof label === "string" && MAP_LAYER_IDS.has(label as MapLayerId);
 }
@@ -3057,6 +3068,26 @@ function traceLinePath(context: GraphicsContext, path: LinePathPrimitive, dash: 
         patternRemaining = dashPattern[patternIndex];
         drawing = !drawing;
       }
+    }
+  }
+}
+
+function tracePathCommands(context: GraphicsContext, commands: readonly PathCommand[], offsetX = 0, offsetY = 0): void {
+  for (const command of commands) {
+    if (command.type === "closePath") context.closePath();
+    else if (command.type === "moveTo") context.moveTo(command.x + offsetX, command.y + offsetY);
+    else if (command.type === "lineTo") context.lineTo(command.x + offsetX, command.y + offsetY);
+    else if (command.type === "quadraticCurveTo") {
+      context.quadraticCurveTo(command.cpx + offsetX, command.cpy + offsetY, command.x + offsetX, command.y + offsetY);
+    } else {
+      context.bezierCurveTo(
+        command.cp1x + offsetX,
+        command.cp1y + offsetY,
+        command.cp2x + offsetX,
+        command.cp2y + offsetY,
+        command.x + offsetX,
+        command.y + offsetY
+      );
     }
   }
 }
