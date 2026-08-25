@@ -370,7 +370,7 @@ describe("PixiMapRenderer lifecycle", () => {
       coalesceInvalidations([{ kind: "world" }])
     );
 
-    expect(renderer.getSnapshot()).toMatchObject({ resourceCount: 21, textureCacheEntries: 3 });
+    expect(renderer.getSnapshot()).toMatchObject({ resourceCount: 18, textureCacheEntries: 3 });
     expect(applicationState.assetLoad).toHaveBeenCalledTimes(3);
 
     renderer.clear();
@@ -385,7 +385,7 @@ describe("PixiMapRenderer lifecycle", () => {
     await renderer.mount(createSurface());
     await renderer.render(STATIC_VIEWER_WORLD, style, coalesceInvalidations([{ kind: "world" }]));
 
-    expect(renderer.getSnapshot()).toMatchObject({ cells: 2, enabled: true, resourceCount: 20 });
+    expect(renderer.getSnapshot()).toMatchObject({ cells: 2, enabled: true, resourceCount: 17 });
     expect(applicationState.stage?.children.map(child => child.label)).toEqual([
       "ocean",
       "landmass",
@@ -427,10 +427,12 @@ describe("PixiMapRenderer lifecycle", () => {
       | { children: Array<{ children: Array<{ label: string }>; label: string }> }
       | undefined;
     const coastalStateFill = clippedStateFill?.children.find(child => child.label === "states:coastal-overdraw");
+    const stateHalo = stateLayer?.children.find(child => child.label === "statesHalo");
     expect(coastalStateFill?.children.map(child => child.label).sort()).toEqual([
       "states:coastal-overdraw:1",
       "states:coastal-overdraw:2"
     ]);
+    expect(stateHalo?.children.map(child => child.label).sort()).toEqual(["statesHalo:1", "statesHalo:2"]);
     expect(clippedStateFill?.children.some(child => child.label === "states:coast-clipped-fill:mask:land")).toBe(true);
     renderer.setLayerVisibility("biomes", false);
     expect(applicationState.stage?.children.find(child => child.label === "biomes")?.visible).toBe(false);

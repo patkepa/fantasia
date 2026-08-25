@@ -76,6 +76,7 @@ import {
 import { buildReliefSpriteScene } from "../scene/layers/relief-sprite-scene";
 import { type RetainedCellTopology, RetainedCellTopologyCache } from "../scene/layers/retained-cell-topology";
 import { buildRiverScene, buildRouteScene } from "../scene/layers/river-route-scene";
+import { buildStateHaloScene } from "../scene/layers/state-halo-scene";
 import { buildCompassScene } from "../scene/layers/static-overlay-scene";
 import { buildZoneScene } from "../scene/layers/zone-scene";
 import type { PathCommand } from "../scene/path-commands";
@@ -156,7 +157,6 @@ interface CellFillGeography {
 interface CellMeshDisplay {
   coastalFill: Container;
   container: Container;
-  halo?: RetainedCellMesh;
   retained: RetainedCellMesh;
 }
 
@@ -878,24 +878,7 @@ export class PixiMapRenderer implements MapRenderer {
 
     const container = new Container();
     container.label = layer;
-    let halo: RetainedCellMesh | undefined;
-    const stateStyle = layer === "states" ? this.semanticStyle.states : null;
-    if (stateStyle && stateStyle.halo.opacity > 0 && stateStyle.halo.width > 0) {
-      halo = new RetainedCellMesh(this.getCellTopology(), fillSource, layer, this.resources);
-      const haloContainer = new Container();
-      const haloFilter = new BlurFilter({
-        quality: 3,
-        strength: stateStyle.halo.blur + stateStyle.halo.width / 2
-      });
-      haloContainer.label = "statesHalo";
-      haloContainer.alpha = stateStyle.halo.opacity;
-      haloContainer.filters = [haloFilter];
-      halo.mesh.label = "states-halo-retained-cells";
-      haloContainer.addChild(halo.mesh);
-      container.addChild(haloContainer);
-      this.rendererFilters.add(haloFilter);
-      this.retainedCellMeshes.add(halo);
-    }
+    if (layer === "states") container.addChild(this.buildStateHaloContainer());
     const clippedFill = new Container();
     clippedFill.label = `${layer}:coast-clipped-fill`;
     const coastalFill = new Container();
@@ -929,7 +912,42 @@ export class PixiMapRenderer implements MapRenderer {
     }
     container.addChild(clippedFill);
     if (style.filter) this.applyPhysicalFilter(container, style.filter);
-    this.cellMeshes.set(layer, { coastalFill, container, halo, retained });
+    this.cellMeshes.set(layer, { coastalFill, container, retained });
+    return container;
+  }
+
+  private buildStateHaloContainer(): Container {
+    const style = this.semanticStyle.states.halo;
+    const container = new Container();
+    container.label = "statesHalo";
+    if (style.opacity <= 0 || style.width <= 0) return container;
+
+    container.alpha = style.opacity;
+    if (style.blur > 0) {
+      const filter = new BlurFilter({ quality: 3, strength: style.blur });
+      container.filters = [filter];
+      this.rendererFilters.add(filter);
+    }
+
+    const scene = buildStateHaloScene(this.getWorld(), this.sceneRevisions.getLayerRevision("states"));
+    for (const group of scene.groups) {
+      const state = this.getWorld().states[group.stateId];
+      const graphic = createLineGraphic(group.paths, {
+        cap: "round",
+        color:
+          color(state?.color ?? "#666666")
+            ?.darker()
+            .hex() ?? "#666666",
+        dash: "",
+        opacity: 1,
+        width: style.width
+      });
+      const stateContainer = new Container();
+      stateContainer.label = `statesHalo:${group.stateId}`;
+      stateContainer.addChild(graphic);
+      applyPolygonMask(stateContainer, group.polygons);
+      container.addChild(stateContainer);
+    }
     return container;
   }
 
@@ -2364,10 +2382,6 @@ export class PixiMapRenderer implements MapRenderer {
       if (meshes) {
         meshes.retained.destroy();
         this.retainedCellMeshes.delete(meshes.retained);
-        if (meshes.halo) {
-          meshes.halo.destroy();
-          this.retainedCellMeshes.delete(meshes.halo);
-        }
         this.cellMeshes.delete(layer as CellFillLayer);
       }
     }
@@ -2404,6 +2418,7 @@ export class PixiMapRenderer implements MapRenderer {
     if (!this.app) return false;
     const world = this.getWorld();
     const layers = new Set(assignments.map(invalidation => invalidation.layer as CellFillLayer));
+    if (layers.has("states")) return false;
     for (const layer of layers) {
       const target = this.cellMeshes.get(layer);
       if (!target) return false;
@@ -2425,16 +2440,6 @@ export class PixiMapRenderer implements MapRenderer {
         ...this.getCellFillSource(layer),
         fallbackColor: style.fallbackColor
       });
-      target.halo?.update(
-        {
-          ...this.getCellFillSource(layer),
-          fallbackColor: style.fallbackColor,
-          heights: world.cells.h
-        },
-        layerInvalidations.some(invalidation => !invalidation.cellIds)
-          ? world.cells.i
-          : layerInvalidations.flatMap(invalidation => invalidation.cellIds ?? [])
-      );
     }
     this.pickingIndex.updateLayers(world, this.semanticStyle, layers, this.getVisibleLayers());
     this.stats.pickingEntries = this.pickingIndex.getSize();
@@ -2639,6 +2644,15 @@ function applyGeographyMask(
   }
   const mask = new Graphics(context);
   mask.label = `${target.label}:mask:${maskType}`;
+  target.addChild(mask);
+  target.mask = mask;
+}
+
+function applyPolygonMask(target: Container, polygons: readonly PolygonPathPrimitive[]): void {
+  const context = new GraphicsContext();
+  for (const polygon of polygons) context.poly(polygon.points.flat(), true).fill({ color: "#ffffff" });
+  const mask = new Graphics(context);
+  mask.label = `${target.label}:mask`;
   target.addChild(mask);
   target.mask = mask;
 }

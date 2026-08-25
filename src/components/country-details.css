@@ -67,11 +67,12 @@
 }
 
 .fantasia-country-details {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
+  position: fixed;
+  top: 64px;
+  right: 24px;
   width: 344px;
-  overflow: hidden;
+  max-height: calc(100vh - 80px);
+  overflow: auto;
   color: var(--kui-text-secondary);
 }
 
@@ -267,5 +268,8 @@
 
   .fantasia-country-details {
     width: min(344px, calc(100vw - 24px));
+    top: 56px;
+    right: 12px;
+    max-height: calc(100vh - 68px);
   }
 }

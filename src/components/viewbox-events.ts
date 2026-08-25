@@ -72,7 +72,12 @@ function onClick(event: MouseEvent): void {
     inspectMapPoint(event, hit);
     return;
   }
-  if (hit?.domainKind === "state" && selectCountry(Number(hit.domainId))) return;
+  if (
+    hit?.domainKind === "state" &&
+    selectCountry(Number(hit.domainId), getProvinceIdAtEvent(event, Number(hit.domainId)))
+  ) {
+    return;
+  }
   if (hit && openMapHit(hit)) return;
 
   const target = event?.target as SVGElement | null;
@@ -121,7 +126,12 @@ function inspectMapPoint(event: MouseEvent, hit: MapHit | null): void {
   if (cellId === undefined) return;
   if (pack.cells.h[cellId] < 20) clearSelectedCountry();
   const countryId = pack.cells.state[cellId];
-  if (!event.shiftKey && getWorkspaceMode() === "view" && countryId && selectCountry(countryId)) {
+  if (
+    !event.shiftKey &&
+    getWorkspaceMode() === "view" &&
+    countryId &&
+    selectCountry(countryId, pack.cells.province[cellId])
+  ) {
     setViewSessionSelection({ cellId, domainId: String(countryId), domainKind: "state" });
     return;
   }
@@ -131,6 +141,13 @@ function inspectMapPoint(event: MouseEvent, hit: MapHit | null): void {
     domainKind: hit?.domainKind
   });
   if (event.shiftKey) Controllers.CellInfo.openAt([point.x, point.y]);
+}
+
+function getProvinceIdAtEvent(event: MouseEvent, countryId: number): number | undefined {
+  const point = getPixiMapPointAtClient(event.clientX, event.clientY);
+  if (!point) return undefined;
+  const cellId = findClosestCell(point.x, point.y, undefined, pack);
+  return cellId !== undefined && pack.cells.state[cellId] === countryId ? pack.cells.province[cellId] : undefined;
 }
 
 function openMapHit(hit: MapHit): boolean {
