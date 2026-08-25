@@ -710,7 +710,7 @@ export class PixiMapRenderer implements MapRenderer {
     maxWidth: number,
     maxHeight: number
   ): { height: number; source: CanvasImageSource; width: number } | null {
-    if (!this.app || !this.world?.vertices.p.length) return null;
+    if (!this.app || !this.world?.vertices?.p?.length) return null;
 
     const bounds = getWorldBounds(this.world);
     const resolution = Math.min(1, maxWidth / bounds.width, maxHeight / bounds.height);

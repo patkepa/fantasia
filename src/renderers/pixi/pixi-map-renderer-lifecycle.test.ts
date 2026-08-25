@@ -279,6 +279,15 @@ describe("PixiMapRenderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("skips a minimap overview while world vertices are not ready", async () => {
+    const renderer = new PixiMapRenderer();
+    await renderer.mount(createSurface());
+    (renderer as unknown as { world: object }).world = {};
+
+    expect(renderer.createOverview(320, 200)).toBeNull();
+    renderer.destroy();
+  });
+
   it("re-evaluates the injected DPR against the resolution budget on resize", async () => {
     let devicePixelRatio = 3;
     const renderer = new PixiMapRenderer({ getDevicePixelRatio: () => devicePixelRatio });
