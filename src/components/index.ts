@@ -12,6 +12,7 @@ import { initializeLayerControlsRuntime } from "./layers/layer-controls-runtime"
 import { mountOptionsPanel } from "./options/options-panel";
 import { initializeMapStyleControls } from "./style/map-style-controls";
 import { mountStylePanel } from "./style/style-panel";
+import { initializeStylePresetsRuntime } from "./style/style-presets-controller";
 import "./dialog/sorting";
 import { enableVerticalSortable } from "./dialog/vertical-sortable";
 import { enableElementDragging } from "./element-dragging";
@@ -35,6 +36,7 @@ mountStylePanel();
 mountOptionsPanel();
 initializeLayerControlsRuntime();
 initializeMapStyleControls();
+void initializeStylePresetsRuntime();
 
 // Load the workspace as soon as the DOM is available. Waiting for `window.load`
 // can leave the map without its controls when an unrelated asset stalls.
@@ -45,11 +47,7 @@ else loadWorkspace();
 // These runtimes only bind editor dialogs and controls. Deferring their module evaluation keeps map generation and the
 // first Pixi frame ahead of UI code that is not needed until the user opens an editor.
 const loadEditorRuntimes = () =>
-  Promise.all([
-    import("./options/options-runtime"),
-    import("./style/style-editor-loader"),
-    import("./style/style-presets-runtime")
-  ]);
+  Promise.all([import("./options/options-runtime"), import("./style/style-editor-loader")]);
 const scheduleEditorRuntimes = () => void loadEditorRuntimes();
 const requestIdle = (window as Partial<Window>).requestIdleCallback;
 if (requestIdle) requestIdle.call(window, scheduleEditorRuntimes, { timeout: 1_500 });

@@ -6,6 +6,7 @@ export interface StylePresetsApi {
 }
 
 let target: StylePresetsApi | null = null;
+let runtimePromise: Promise<void> | null = null;
 
 function getTarget(): StylePresetsApi {
   if (!target) throw new Error("Style presets runtime is not initialized");
@@ -17,6 +18,12 @@ export function bindStylePresets(nextTarget: StylePresetsApi): () => void {
   return () => {
     if (target === nextTarget) target = null;
   };
+}
+
+/** Starts the DOM-bound presets runtime once its panel markup is available. */
+export function initializeStylePresetsRuntime(): Promise<void> {
+  runtimePromise ??= import("./style-presets-runtime").then(() => undefined);
+  return runtimePromise;
 }
 
 /** Stable typed entry point for bundled callers and the legacy window alias. */

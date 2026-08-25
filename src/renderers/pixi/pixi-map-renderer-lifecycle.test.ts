@@ -137,12 +137,18 @@ vi.mock("pixi.js", () => {
     cut() {
       return this;
     }
+    destroy() {}
     stroke() {
       return this;
     }
   }
 
   class Graphics extends DisplayObject {
+    context: unknown;
+    constructor(context?: unknown) {
+      super();
+      this.context = context;
+    }
     svg(source: string) {
       applicationState.svgCreate(source);
       return this;
@@ -265,7 +271,7 @@ describe("PixiMapRenderer lifecycle", () => {
 
     await renderer.mount(surface);
     await renderer.mount(surface);
-    expect(applicationState.init).toHaveBeenCalledWith(expect.objectContaining({ preference: "webgpu" }));
+    expect(applicationState.init).toHaveBeenCalledWith(expect.objectContaining({ preference: "webgl" }));
     expect(applicationState.init).toHaveBeenCalledOnce();
     expect(surface.children).toHaveLength(1);
     await expect(renderer.mount(createSurface())).rejects.toThrow("already mounted");
@@ -383,6 +389,26 @@ describe("PixiMapRenderer lifecycle", () => {
     expect(applicationState.scaleSet).toHaveBeenCalledWith(2);
     expect(applicationState.render).toHaveBeenCalledOnce();
     expect(requestFrame).not.toHaveBeenCalled();
+    renderer.destroy();
+  });
+
+  it("avoids scale-dependent marker work while panning", async () => {
+    const renderer = new PixiMapRenderer();
+    const world = createWorld();
+    world.markers = [{ cell: 0, i: 7, rescale: true, size: 30, type: "battle", x: 2, y: 2 } as never];
+    await renderer.mount(createSurface());
+    await renderer.render(world, structuredClone(DEFAULT_PIXI_MAP_STYLE), coalesceInvalidations([{ kind: "world" }]));
+
+    const marker = applicationState.stage?.children.find(child => child.label === "markers")?.children[0] as {
+      scale: { set: ReturnType<typeof vi.fn> };
+    };
+    marker.scale.set.mockClear();
+
+    renderer.setCamera({ height: 600, scale: 1, width: 800, x: 10, y: 20 });
+    expect(marker.scale.set).not.toHaveBeenCalled();
+
+    renderer.setCamera({ height: 600, scale: 2, width: 800, x: 10, y: 20 });
+    expect(marker.scale.set).toHaveBeenCalled();
     renderer.destroy();
   });
 
@@ -551,6 +577,57 @@ describe("PixiMapRenderer lifecycle", () => {
     expect(applicationState.stage?.children.map(child => child.label)).toEqual(reversedOrder);
     renderer.destroy();
     expect(renderer.getSnapshot()).toMatchObject({ enabled: false, resourceBytes: 0, resourceCount: 0 });
+  });
+
+  it("renders synchronous map geometry before an optional texture resolves", async () => {
+    let resolveTexture: ((texture: never) => void) | undefined;
+    const delayedTexture = new Promise<never>(resolve => {
+      resolveTexture = resolve;
+    });
+    applicationState.assetLoad
+      .mockImplementationOnce(() => delayedTexture)
+      .mockImplementation(() => Promise.resolve({ destroy: vi.fn(), height: 8, width: 8 }));
+    const renderer = new PixiMapRenderer();
+    const style = structuredClone(DEFAULT_PIXI_MAP_STYLE);
+    style.texture.href = "delayed-texture.png";
+    await renderer.mount(createSurface());
+
+    const render = renderer.render(STATIC_VIEWER_WORLD, style, coalesceInvalidations([{ kind: "world" }]));
+    expect(applicationState.stage?.children.find(child => child.label === "states")?.children.length).toBeGreaterThan(
+      0
+    );
+    expect(applicationState.stage?.children.find(child => child.label === "texture")?.children).toHaveLength(0);
+
+    resolveTexture?.({ destroy: vi.fn(), height: 8, width: 8 } as never);
+    await render;
+    expect(applicationState.stage?.children.find(child => child.label === "texture")?.children.length).toBeGreaterThan(
+      0
+    );
+    renderer.destroy();
+  });
+
+  it("shares stable land-mask geometry across thematic fill layers", async () => {
+    const renderer = new PixiMapRenderer();
+    await renderer.mount(createSurface());
+    await renderer.render(
+      STATIC_VIEWER_WORLD,
+      structuredClone(DEFAULT_PIXI_MAP_STYLE),
+      coalesceInvalidations([{ kind: "world" }])
+    );
+
+    const getLandMask = (layer: string) => {
+      const fillLayer = applicationState.stage?.children.find(child => child.label === layer) as
+        | { children: Array<{ children: Array<{ context?: unknown; label: string }>; label: string }> }
+        | undefined;
+      const clipped = fillLayer?.children.find(child => child.label === `${layer}:coast-clipped-fill`);
+      return clipped?.children.find(child => child.label === `${layer}:coast-clipped-fill:mask:land`);
+    };
+
+    const biomesMask = getLandMask("biomes");
+    const culturesMask = getLandMask("cultures");
+    expect(biomesMask).not.toBe(culturesMask);
+    expect(biomesMask?.context).toBe(culturesMask?.context);
+    renderer.destroy();
   });
 
   it("clips river polygons to the rendered land shape", async () => {

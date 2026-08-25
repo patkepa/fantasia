@@ -111,6 +111,14 @@ interface Bounds {
 const createLayerPriority = (order: readonly MapLayerId[]): Map<MapLayerId, number> =>
   new Map(normalizeMapLayerOrder(order).map((layer, index) => [layer, index * 10]));
 
+const AREA_PICK_LAYERS = [
+  { assignments: "province", domainKind: "province", layer: "provinces" },
+  { assignments: "state", domainKind: "state", layer: "states" },
+  { assignments: "culture", domainKind: "culture", layer: "cultures" },
+  { assignments: "religion", domainKind: "religion", layer: "religions" },
+  { assignments: "biome", domainKind: "biome", layer: "biomes" }
+] as const;
+
 export class MapPickingIndex {
   private readonly entriesByLayer = new Map<MapLayerId, MapPickEntry[]>();
   private layerPriority = createLayerPriority(MAP_LAYER_REGISTRY.map(layer => layer.id));
@@ -166,6 +174,11 @@ export class MapPickingIndex {
     this.updateMaxRescaledExtent();
   }
 
+  /** Cell-assignment edits keep geometry stable; area picking only needs the latest live assignment arrays. */
+  updateWorldReference(world: MapRenderWorld): void {
+    this.world = world;
+  }
+
   private replaceLayerSpatialIndex(layer: MapLayerId): void {
     const entries = this.entriesByLayer.get(layer);
     if (!entries?.length) {
@@ -216,26 +229,33 @@ export class MapPickingIndex {
       minX: mapPoint.x - searchRadius,
       minY: mapPoint.y - searchRadius
     };
-    let candidate: { distance: number; entry: MapPickEntry } | null = null;
+    let candidateDistance = Number.POSITIVE_INFINITY;
+    let candidateEntry: MapPickEntry | null = null;
     for (const spatial of this.spatialByLayer.values()) {
-      for (const entry of spatial.query(bounds)) {
-        if (!isEntryVisible(entry, query, cameraScale)) continue;
+      spatial.forEach(bounds, entry => {
+        if (!isEntryVisible(entry, query, cameraScale)) return;
         const distance = distanceToEntry(mapPoint, entry, cameraScale);
-        if (!Number.isFinite(distance) || distance > query.tolerance) continue;
-        const next = { distance, entry };
-        if (!candidate || compareCandidates(next, candidate, this.layerPriority) < 0) candidate = next;
-      }
+        if (
+          Number.isFinite(distance) &&
+          distance <= query.tolerance &&
+          (!candidateEntry ||
+            compareCandidates(entry, distance, candidateEntry, candidateDistance, this.layerPriority) < 0)
+        ) {
+          candidateDistance = distance;
+          candidateEntry = entry;
+        }
+      });
     }
-    if (candidate) {
-      const { entry, distance } = candidate;
+    const resolvedCandidate = candidateEntry as MapPickEntry | null;
+    if (resolvedCandidate) {
       return {
-        distance,
-        domainId: entry.domainId,
-        domainKind: entry.domainKind,
-        kind: entry.kind,
-        layer: entry.layer,
+        distance: candidateDistance,
+        domainId: resolvedCandidate.domainId,
+        domainKind: resolvedCandidate.domainKind,
+        kind: resolvedCandidate.kind,
+        layer: resolvedCandidate.layer,
         mapPoint,
-        subPart: entry.subPart
+        subPart: resolvedCandidate.subPart
       };
     }
     return this.pickArea(mapPoint, query);
@@ -248,29 +268,19 @@ export class MapPickingIndex {
     const cellId = findClosestCell(mapPoint.x, mapPoint.y, undefined, world);
     if (cellId === undefined) return null;
 
-    const areaLayers = [
-      ["provinces", "province", world.cells.province],
-      ["states", "state", world.cells.state],
-      ["cultures", "culture", world.cells.culture],
-      ["religions", "religion", world.cells.religion],
-      ["biomes", "biome", world.cells.biome]
-    ] as const;
-    for (const [layer, domainKind, assignments] of [...areaLayers].sort(
-      (left, right) => this.getLayerPriority(right[0]) - this.getLayerPriority(left[0])
-    )) {
+    let areaCandidate: { domainId: number; domainKind: MapDomainKind; layer: MapLayerId } | null = null;
+    for (const { assignments: assignmentKey, domainKind, layer } of AREA_PICK_LAYERS) {
+      const assignments = world.cells[assignmentKey];
       const domainId = Number(assignments[cellId]);
-      if (domainId && query.isLayerVisible(layer)) {
-        return {
-          distance: 0,
-          domainId,
-          domainKind,
-          kind: "area",
-          layer,
-          mapPoint,
-          subPart: { cellId }
-        };
+      if (
+        domainId &&
+        query.isLayerVisible(layer) &&
+        (!areaCandidate || this.getLayerPriority(layer) > this.getLayerPriority(areaCandidate.layer))
+      ) {
+        areaCandidate = { domainId, domainKind, layer };
       }
     }
+    if (areaCandidate) return { ...areaCandidate, distance: 0, kind: "area", mapPoint, subPart: { cellId } };
 
     if (query.isLayerVisible("cells")) {
       return {
@@ -551,9 +561,11 @@ export function buildMapPickEntries(
 }
 
 class BoundsSpatialIndex<T> {
-  private readonly buckets = new Map<string, number[]>();
+  private readonly buckets = new Map<number, Map<number, number[]>>();
   private items: T[] = [];
   private readonly oversized: number[] = [];
+  private queryRevision = 0;
+  private seen = new Uint32Array();
 
   constructor(
     private readonly bucketSize = 64,
@@ -567,6 +579,7 @@ class BoundsSpatialIndex<T> {
   replace(items: readonly T[], getBounds: (item: T) => Bounds): void {
     this.clear();
     this.items = [...items];
+    this.seen = new Uint32Array(items.length);
     items.forEach((item, index) => {
       const bounds = getBounds(item);
       const minColumn = Math.floor(bounds.minX / this.bucketSize);
@@ -578,38 +591,62 @@ class BoundsSpatialIndex<T> {
         return;
       }
       for (let column = minColumn; column <= maxColumn; column++) {
+        let rows = this.buckets.get(column);
+        if (!rows) {
+          rows = new Map();
+          this.buckets.set(column, rows);
+        }
         for (let row = minRow; row <= maxRow; row++) {
-          const key = `${column}:${row}`;
-          const bucket = this.buckets.get(key);
+          const bucket = rows.get(row);
           if (bucket) bucket.push(index);
-          else this.buckets.set(key, [index]);
+          else rows.set(row, [index]);
         }
       }
     });
   }
 
-  query(bounds: Bounds): T[] {
-    const indexes = new Set(this.oversized);
+  forEach(bounds: Bounds, visit: (item: T) => void): void {
+    const revision = this.nextQueryRevision();
+    const visitIndex = (index: number): void => {
+      if (this.seen[index] === revision) return;
+      this.seen[index] = revision;
+      const item = this.items[index];
+      if (item) visit(item);
+    };
+    for (const index of this.oversized) visitIndex(index);
     for (
       let column = Math.floor(bounds.minX / this.bucketSize);
       column <= Math.floor(bounds.maxX / this.bucketSize);
       column++
     ) {
+      const rows = this.buckets.get(column);
+      if (!rows) continue;
       for (
         let row = Math.floor(bounds.minY / this.bucketSize);
         row <= Math.floor(bounds.maxY / this.bucketSize);
         row++
       ) {
-        for (const index of this.buckets.get(`${column}:${row}`) ?? []) indexes.add(index);
+        for (const index of rows.get(row) ?? []) visitIndex(index);
       }
     }
-    return [...indexes].map(index => this.items[index]);
   }
 
   clear(): void {
     this.buckets.clear();
     this.items = [];
     this.oversized.length = 0;
+    this.seen = new Uint32Array();
+    this.queryRevision = 0;
+  }
+
+  private nextQueryRevision(): number {
+    if (this.queryRevision === 0xffffffff) {
+      this.seen.fill(0);
+      this.queryRevision = 1;
+    } else {
+      this.queryRevision++;
+    }
+    return this.queryRevision;
   }
 }
 
@@ -622,17 +659,17 @@ function isEntryVisible(entry: MapPickEntry, query: MapPickingQuery, cameraScale
 }
 
 function compareCandidates(
-  left: { distance: number; entry: MapPickEntry },
-  right: { distance: number; entry: MapPickEntry },
+  left: MapPickEntry,
+  leftDistance: number,
+  right: MapPickEntry,
+  rightDistance: number,
   layerPriority: ReadonlyMap<MapLayerId, number>
 ): number {
-  const priority = getPriority(right.entry, layerPriority) - getPriority(left.entry, layerPriority);
+  const priority = getPriority(right, layerPriority) - getPriority(left, layerPriority);
   if (priority) return priority;
-  const distance = left.distance - right.distance;
+  const distance = leftDistance - rightDistance;
   if (distance) return distance;
-  return `${left.entry.domainKind}:${left.entry.domainId}`.localeCompare(
-    `${right.entry.domainKind}:${right.entry.domainId}`
-  );
+  return `${left.domainKind}:${left.domainId}`.localeCompare(`${right.domainKind}:${right.domainId}`);
 }
 
 function getPriority(entry: MapPickEntry, layerPriority: ReadonlyMap<MapLayerId, number>): number {

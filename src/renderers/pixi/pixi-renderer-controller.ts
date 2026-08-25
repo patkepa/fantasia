@@ -58,8 +58,10 @@ let instancePromise: Promise<PixiMapRenderer> | null = null;
 let instance: PixiMapRenderer | null = null;
 let layerOrder = MAP_LAYER_REGISTRY.map(layer => layer.id);
 let lastWorld: MapRenderWorld | null = null;
+let lastRendererStyle: ReturnType<typeof getMapRendererStyle> | null = null;
 const interactionOverlay = new MapInteractionOverlay();
 let viewportSyncFrameId: number | null = null;
+const CELL_ASSIGNMENT_LAYERS = new Set(["biomes", "cultures", "provinces", "religions", "states"]);
 
 function getRendererPreference(): "webgl" | "webgpu" {
   return new URLSearchParams(window.location.search).get("renderer") === "webgpu" ? "webgpu" : "webgl";
@@ -207,6 +209,7 @@ const api: PixiRendererControllerApi = {
   clear: async () => {
     interactionOverlay.clear();
     lastWorld = null;
+    lastRendererStyle = null;
     await instance?.clear();
   },
   clearInteraction: () => interactionOverlay.clear(),
@@ -220,17 +223,17 @@ const api: PixiRendererControllerApi = {
   invalidateLayer: (layer, cellIds) => {
     window.dispatchEvent(new Event(MAP_CONTENT_CHANGED_EVENT));
     if (!instance) return;
+    const isAssignment = CELL_ASSIGNMENT_LAYERS.has(layer);
     instance.queueRender(
-      getWorld(),
-      getMapRendererStyle(style),
-      ["biomes", "cultures", "provinces", "religions", "states"].includes(layer)
-        ? { cellIds, kind: "assignment", layer }
-        : { kind: "geometry", layer }
+      isAssignment ? (lastWorld ?? getWorld()) : getWorld(),
+      isAssignment ? (lastRendererStyle ?? getMapRendererStyle(style)) : getMapRendererStyle(style),
+      isAssignment ? { cellIds, kind: "assignment", layer } : { kind: "geometry", layer }
     );
   },
   invalidateStyle: layer => {
     window.dispatchEvent(new Event(MAP_CONTENT_CHANGED_EVENT));
-    instance?.queueRender(lastWorld ?? getWorld(), getMapRendererStyle(style), { kind: "style", layer });
+    lastRendererStyle = getMapRendererStyle(style);
+    instance?.queueRender(lastWorld ?? getWorld(), lastRendererStyle, { kind: "style", layer });
   },
   pick: (clientX, clientY) => {
     const point = getRendererScreenPoint(clientX, clientY);
@@ -247,9 +250,8 @@ const api: PixiRendererControllerApi = {
   },
   queueRebuild: () => {
     window.dispatchEvent(new Event(MAP_CONTENT_CHANGED_EVENT));
-    void instancePromise?.then(renderer =>
-      renderer.queueRender(getWorld(), getMapRendererStyle(style), { kind: "world" })
-    );
+    lastRendererStyle = getMapRendererStyle(style);
+    void instancePromise?.then(renderer => renderer.queueRender(getWorld(), lastRendererStyle!, { kind: "world" }));
   },
   start: async () => {
     if (!pack?.cells?.i?.length) return;
@@ -267,7 +269,8 @@ const api: PixiRendererControllerApi = {
     interactionOverlay.setCamera(camera);
     await renderer.mount(prepareSurface());
     syncVisibility(renderer);
-    await renderer.render(getWorld(), getMapRendererStyle(style), coalesceInvalidations([{ kind: "world" }]));
+    lastRendererStyle = getMapRendererStyle(style);
+    await renderer.render(getWorld(), lastRendererStyle, coalesceInvalidations([{ kind: "world" }]));
     removeLegacyRendererGroups();
     document.getElementById("map")?.classList.add("pixi-renderer-active");
   },

@@ -17,7 +17,7 @@ import {
 import { closeDialogs, closeEditDialogs } from "@/components/dialog/dialog-helpers";
 import { LayerControls } from "@/components/layers/layer-controls";
 import { OptionsController, type RegenerateOptions } from "@/components/options/options-controller";
-import { StylePresets } from "@/components/style/style-presets-controller";
+import { initializeStylePresetsRuntime, StylePresets } from "@/components/style/style-presets-controller";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { getCultureGenerationSettings } from "@/controllers/culture-generation-settings";
@@ -289,6 +289,7 @@ async function checkLoadParameters() {
 }
 
 async function generateMapOnLoad() {
+  await initializeStylePresetsRuntime();
   await StylePresets.applyOnLoad(); // apply previously selected default or custom style
   await generate(undefined, false); // generate map without marking a new document as user-modified
   LayerControls.restoreSavedPreset(); // apply saved layers preset and render layers
