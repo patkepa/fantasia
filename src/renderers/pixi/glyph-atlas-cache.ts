@@ -48,7 +48,7 @@ export class GlyphAtlasCache {
   }
 
   acquire(group: LabelSceneGroup, resolution: number, resolvedFontFamily: string): Promise<GlyphAtlasHandle> {
-    return this.acquireCharacters(collectGlyphCharacters(group), group.style, resolution, resolvedFontFamily);
+    return this.acquireCharacters(collectGlyphCharacters(group), getGlyphAtlasStyle(group), resolution, resolvedFontFamily);
   }
 
   acquireCharacters(
@@ -79,7 +79,12 @@ export function createGlyphAtlasDescriptor(
   resolvedFontFamily: string
 ): GlyphAtlasDescriptor {
   const characters = collectGlyphCharacters(group);
-  return createGlyphAtlasDescriptorFromCharacters(characters, group.style, resolution, resolvedFontFamily);
+  return createGlyphAtlasDescriptorFromCharacters(
+    characters,
+    getGlyphAtlasStyle(group),
+    resolution,
+    resolvedFontFamily
+  );
 }
 
 export function createGlyphAtlasDescriptorFromCharacters(
@@ -137,6 +142,11 @@ export function estimateGlyphAtlasBytes(
   return Math.max(1, Math.ceil(glyphPixels / pagePixels)) * pagePixels * 4;
 }
 
+function getGlyphAtlasStyle(group: LabelSceneGroup): ResolvedLabelGroupStyle {
+  const fontSize = Math.max(group.style.fontSize, ...group.labels.map(label => label.fontSize));
+  return fontSize === group.style.fontSize ? group.style : { ...group.style, fontSize };
+}
+
 export function selectLabelAtlasResolution(request: LabelAtlasResolutionRequest): number {
   const rendererResolution = Math.max(1, request.rendererResolution);
   const cameraScale = Math.max(1, request.cameraScale);
@@ -156,7 +166,8 @@ export function selectLabelAtlasResolution(request: LabelAtlasResolutionRequest)
       candidate <= desiredCandidate &&
       groups.reduce(
         (bytes, group) =>
-          bytes + estimateGlyphAtlasBytes([...collectGlyphCharacters(group)].length, group.style, candidate),
+          bytes +
+          estimateGlyphAtlasBytes([...collectGlyphCharacters(group)].length, getGlyphAtlasStyle(group), candidate),
         0
       ) <= request.budgetBytes
   );

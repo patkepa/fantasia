@@ -26,6 +26,20 @@ describe("GlyphAtlasCache", () => {
     expect(first.bytes).toBeGreaterThan(0);
   });
 
+  it("uses the largest label in a group as the atlas font size", async () => {
+    const group = labelGroup("North Realm");
+    const largeLabel = { ...group.labels[0], fontSize: 36 };
+    const enlargedGroup = { ...group, labels: [group.labels[0], largeLabel] };
+    const atlas = createGlyphAtlasDescriptor(enlargedGroup, 1, "Arial");
+    const installer = { install: vi.fn(), uninstall: vi.fn() };
+    const cache = new GlyphAtlasCache({ budgetBytes: atlas.bytes, installer });
+    const handle = await cache.acquire(enlargedGroup, 1, "Arial");
+
+    expect(atlas.installOptions.style).toMatchObject({ fontSize: 36 });
+    expect(handle.value.installOptions.style).toMatchObject({ fontSize: 36 });
+    handle.release();
+  });
+
   it("keeps referenced atlases and evicts the least-recently-used released atlas over budget", async () => {
     const installer = { install: vi.fn(), uninstall: vi.fn() };
     const firstGroup = labelGroup("abc");

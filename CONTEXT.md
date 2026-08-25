@@ -1,26 +1,31 @@
 # Project Overview
 
 - **Purpose**: Procedural generation, editing, and visualization of fantasy maps for writers, game masters, and cartographers.
-- **Main Technologies**: Vanilla JS/TS, SVG for rendering, Vite for bundling, Biome for linting/formatting.
+- **Main Technologies**: TypeScript, React/Kantzen UI islands, PixiJS for interactive map rendering, SVG overlays for
+  small viewport-anchored and accessible elements, Vite for bundling, Biome for linting/formatting.
 - **Architecture**: Moving toward Fantasia 2.0. The system is divided into four major layers:
   1. **State**: The world data (`grid` and `pack` objects).
   2. **Generators**: Procedural simulation logic (Model).
   3. **Editors**: User-driven map mutations (Controllers).
-  4. **Renderers**: Visualization into DOM/SVG (View).
+  4. **Renderers**: Renderer-neutral scenes projected primarily into PixiJS, with a deliberately small SVG overlay
+     boundary for viewport decorations and transient interaction controls (View).
 
 # Repository Structure
 
 - `src/generators/`: Generators containing simulation logic (e.g., `heightmap-generator.ts`, `cultures-generator.ts`).
 - `src/controllers/`: The UI layer — editors and tools that mutate state, plus read-only overviews/dialogs that present it.
-- `src/renderers/`: Code responsible for transforming world data into SVG overlays.
-- `src/io/`: Serialization and persistence — save, load, export (legacy `public/modules/io/`).
+- `src/renderers/`: Renderer-neutral scene builders, PixiJS rendering, and the SVG interaction/viewport overlays.
+- `src/services/io/`: Serialization and persistence — save, load, export, migrations, and local/cloud storage.
 - `src/services/`: App-shell & platform lifecycle, unrelated to map state (e.g., PWA installation, auto-update).
 - `src/data/`: Static content / reference data (e.g., supporters list, heightmap templates).
 - `src/types/`: Shared TypeScript interfaces and domain models.
 - `src/utils/`: Generic helper functions.
-- `public/`: Static assets and NON-MIGRATED JS Code in `public/modules`. `public/libs/` holds vendored third-party scripts for legacy code only — new `src/` code imports deps from npm (no `src/libs/`).
+- `public/`: Static assets such as images, heightmaps, style presets, PWA files, and a small set of vendored libraries.
+  New application code belongs in `src/` and imports npm dependencies; the former `public/modules/` application-code
+  tree no longer exists.
 - `docs/`: Domain and architectural documentation. See `docs/architecture/architecture.md` "Project Structure" for the full layout and a "where does my file go?" guide.
-- `src/index.html`: **CAUTION**: Currently a 9K-line monolith containing the entire UI structure, SVG `<defs>`, and CSS filters.
+- `src/index.html`: **CAUTION**: Still a roughly 3K-line monolith containing page shell markup, SVG `<defs>`, and CSS
+  filters. Keep structural changes focused and incremental.
 - `tests/e2e/`: Playwright end-to-end tests. Never automatically run Playwright tests when developing.
 
 # Fantasia 2.0 Architecture Rules
@@ -50,7 +55,8 @@
 
 # AI Agent Instructions
 
-- **Entry Points**: Start by inspecting `docs/architecture.md` and `docs/glossary.md` to align with the domain model.
+- **Entry Points**: Start by inspecting `docs/architecture/architecture.md` and `docs/domain/glossary.md` to align with
+  the domain model.
 - **Refactoring Constraints**: The project is in a gradual JS -> TS migration. Focus on incremental type safety and extracting logic.
 - **File Limits**: `src/index.html` is excessively large. DO NOT try to perform large structural changes to it in a single pass.
 - **Dependencies**: DO NOT introduce new production dependencies without explicit permission. Keep the bundle lightweight.
@@ -74,8 +80,8 @@
 
 # Important Files
 
-- `docs/glossary.md`: Domain vocabulary definitions.
-- `docs/architecture.md`: The guiding blueprint for Fantasia 2.0.
+- `docs/domain/glossary.md`: Domain vocabulary definitions.
+- `docs/architecture/architecture.md`: The guiding blueprint for Fantasia 2.0.
 
 # Code Style Rules
 
