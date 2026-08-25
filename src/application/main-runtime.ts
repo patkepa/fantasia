@@ -603,6 +603,8 @@ function addLakesInDeepDepressions() {
 
   const { cells, features } = app.grid;
   const { c, h, b } = cells;
+  const visited = new Uint32Array(c.length);
+  let visit = 0;
 
   for (const i of cells.i) {
     if (b[i] || h[i] < 20) continue;
@@ -613,8 +615,8 @@ function addLakesInDeepDepressions() {
     let deep = true;
     const threshold = h[i] + elevationLimit;
     const queue = [i];
-    const checked = [];
-    checked[i] = true;
+    const visitId = ++visit;
+    visited[i] = visitId;
 
     // check if elevated cell can potentially pour to water
     while (deep && queue.length) {
@@ -622,14 +624,14 @@ function addLakesInDeepDepressions() {
       if (q === undefined) break;
 
       for (const n of c[q]) {
-        if (checked[n]) continue;
+        if (visited[n] === visitId) continue;
         if (h[n] >= threshold) continue;
         if (h[n] < 20) {
           deep = false;
           break;
         }
 
-        checked[n] = true;
+        visited[n] = visitId;
         queue.push(n);
       }
     }
@@ -643,13 +645,14 @@ function addLakesInDeepDepressions() {
 
   function addLake(lakeCells: number[]): void {
     const f = features.length;
+    const lakeCellIds = new Set(lakeCells);
 
     lakeCells.forEach(i => {
       cells.h[i] = 19;
       cells.t[i] = -1;
       cells.f[i] = f;
       c[i].forEach(n => {
-        if (!lakeCells.includes(n)) cells.t[n] = 1;
+        if (!lakeCellIds.has(n)) cells.t[n] = 1;
       });
     });
 

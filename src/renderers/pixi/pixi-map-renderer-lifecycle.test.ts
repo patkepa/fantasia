@@ -322,6 +322,26 @@ describe("PixiMapRenderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("temporarily lowers backing resolution during a camera gesture and restores it when settled", async () => {
+    vi.useFakeTimers();
+    const renderer = new PixiMapRenderer({
+      adaptiveQualityPolicy: { interactionResolutionCap: 1, settleDelayMs: 220 },
+      getDevicePixelRatio: () => 2
+    });
+    renderer.setCamera({ height: 600, scale: 1, width: 800, x: 0, y: 0 });
+    await renderer.mount(createSurface());
+    applicationState.resize.mockClear();
+
+    renderer.setCamera({ height: 600, scale: 2, width: 800, x: 10, y: 20 });
+    expect(applicationState.resize).toHaveBeenLastCalledWith(800, 600, 1);
+    expect(renderer.getSnapshot()).toMatchObject({ qualityMode: "interactive", resolution: 1 });
+
+    vi.advanceTimersByTime(220);
+    expect(applicationState.resize).toHaveBeenLastCalledWith(800, 600, 2);
+    expect(renderer.getSnapshot()).toMatchObject({ qualityMode: "settled", resolution: 2 });
+    renderer.destroy();
+  });
+
   it("updates transforms before culling an invalidation-driven camera frame", async () => {
     const renderer = new PixiMapRenderer();
 
@@ -827,6 +847,27 @@ describe("PixiMapRenderer lifecycle", () => {
 
     renderer.setCamera({ height: 100, scale: 1, width: 200, x: 0, y: 0 });
     expect(coordinates?.children.filter(group => group.visible).map(group => group.label)).toEqual(["coordinates:2"]);
+    renderer.destroy();
+  });
+
+  it("rematerializes relief without rebuilding unrelated layers", async () => {
+    const renderer = new PixiMapRenderer({ resolveReliefIcon: () => "data:image/svg+xml,relief" });
+    await renderer.mount(createSurface());
+    await renderer.render(
+      createWorld(),
+      structuredClone(DEFAULT_PIXI_MAP_STYLE),
+      coalesceInvalidations([{ kind: "world" }])
+    );
+    const states = applicationState.stage?.children.find(child => child.label === "states");
+
+    renderer.setLayerVisibility("relief", false);
+    expect(applicationState.stage?.children.find(child => child.label === "relief")?.visible).toBe(false);
+    const before = renderer.getSnapshot().commitSequence;
+    renderer.setLayerVisibility("relief", true);
+    await renderer.whenCommitted(before);
+
+    expect(applicationState.stage?.children.find(child => child.label === "states")).toBe(states);
+    expect(applicationState.stage?.children.find(child => child.label === "relief")?.visible).toBe(true);
     renderer.destroy();
   });
 
