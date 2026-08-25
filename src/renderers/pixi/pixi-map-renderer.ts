@@ -219,6 +219,7 @@ interface CoordinateGroupDisplay {
 interface CoordinateLabelDisplay {
   axis: CoordinateSceneLabel["axis"];
   display: BitmapText;
+  step: number;
   x: number;
   y: number;
 }
@@ -651,6 +652,12 @@ export class PixiMapRenderer implements MapRenderer {
         this.scheduler?.invalidate({ kind: "geometry", layer });
       }
     }
+    if (visible) {
+      if (layer === "coordinates") this.updateCoordinateDisplays();
+      if (layer === "emblems") this.updateEmblemGroupVisibility();
+      if (layer === "labels") this.updateLabelDisplays();
+      if (layer === "markers") this.updateMarkerScales();
+    }
     this.applyVisibility(!awaitingMaterialization && !materializedImmediately);
   }
 
@@ -1034,7 +1041,7 @@ export class PixiMapRenderer implements MapRenderer {
       fallbackColor: style.fallbackColor,
       heights: this.getWorld().cells.h
     };
-    const retained = new RetainedCellMesh(this.getCellTopology(), fillSource, layer, this.resources);
+    const retained = new RetainedCellMesh(this.getCellTopology(), fillSource, this.resources);
 
     const container = new Container();
     container.label = layer;
@@ -1500,7 +1507,7 @@ export class PixiMapRenderer implements MapRenderer {
         display.anchor.set(0.5);
         display.label = label.domainId;
         groupContainer.addChild(display);
-        this.coordinateLabelDisplays.push({ axis: label.axis, display, x: label.x, y: label.y });
+        this.coordinateLabelDisplays.push({ axis: label.axis, display, step: group.step, x: label.x, y: label.y });
       }
       this.coordinateGroupDisplays.push({ container: groupContainer, step: group.step });
       container.addChild(groupContainer);
@@ -2279,6 +2286,7 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   private updateMarkerScales(): void {
+    if (!(this.layerVisibility.get("markers") ?? true)) return;
     for (const { baseSize, container, rescale } of this.markerDisplays.values()) {
       const renderedSize = rescale ? Math.max(baseSize / 5 + 24 / this.camera.scale, 1) : baseSize;
       container.scale.set(renderedSize / 30);
@@ -2450,6 +2458,7 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   private updateLabelDisplays(): void {
+    if (!(this.layerVisibility.get("labels") ?? true)) return;
     const resizeScale = Math.max((1 + 1 / this.camera.scale) / 2, 0.01);
     for (const display of this.labelDisplays) {
       const textScale = display.rescale ? resizeScale : 1;
@@ -2522,7 +2531,7 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   private updateCoordinateDisplays(): void {
-    if (!this.coordinateLongitudeSpan) return;
+    if (!this.coordinateLongitudeSpan || !(this.layerVisibility.get("coordinates") ?? true)) return;
     const selectedStep = selectCoordinateStep(this.coordinateLongitudeSpan, this.camera.scale);
     for (const group of this.coordinateGroupDisplays) group.container.visible = group.step === selectedStep;
 
@@ -2532,6 +2541,7 @@ export class PixiMapRenderer implements MapRenderer {
     const pinnedX = (style.fontSize + 3 - this.camera.x) / scale;
     const pinnedY = (style.fontSize / 2 + 1 - this.camera.y) / scale;
     for (const label of this.coordinateLabelDisplays) {
+      if (label.step !== selectedStep) continue;
       label.display.position.set(
         label.axis === "latitude" ? pinnedX : label.x,
         label.axis === "longitude" ? pinnedY : label.y
@@ -2541,6 +2551,7 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   private updateEmblemGroupVisibility(): void {
+    if (!(this.layerVisibility.get("emblems") ?? true)) return;
     for (const group of this.emblemGroupDisplays) {
       const renderedSize = group.baseSize * this.camera.scale;
       group.container.visible = !group.automaticVisibility || (renderedSize >= 25 && renderedSize <= 300);

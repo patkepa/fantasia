@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCellFillAttributes, parseColor, updateCellFillAttributes } from "./cell-fill-attributes";
+import {
+  buildCellFillAttributes,
+  createCellFillColorResolver,
+  parseColor,
+  updateCellFillAttributes
+} from "./cell-fill-attributes";
 import { buildRetainedCellTopology } from "./retained-cell-topology";
 
 const topology = buildRetainedCellTopology({
@@ -62,5 +67,16 @@ describe("cell fill attributes", () => {
     expect([...attributes.slice(2, 4)]).toEqual([0, 1]);
     expect([...attributes.slice(12, 16)]).toEqual([0, 0, 0, 0]);
     expect(parseColor("#abc")).toEqual([170 / 255, 187 / 255, 204 / 255]);
+  });
+
+  it("reuses resolved domain colors across cells", () => {
+    const resolver = createCellFillColorResolver({
+      assignments: Uint8Array.from([1, 1]),
+      colors: [{}, { color: "#123456" }],
+      fallbackColor: "#888888",
+      heights: Uint8Array.from([20, 20])
+    });
+
+    expect(resolver(0)).toBe(resolver(1));
   });
 });

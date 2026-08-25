@@ -12,14 +12,16 @@ export interface CellFillAttributeUpdate {
   vertexOffset: number;
 }
 
-export function buildCellFillAttributes(topology: RetainedCellTopology, source: CellFillAttributeSource): Float32Array {
+export type CellFillColorResolver = (cellId: number) => CellColor | null;
+
+export function buildCellFillAttributes(
+  topology: RetainedCellTopology,
+  source: CellFillAttributeSource,
+  colorResolver = createCellFillColorResolver(source)
+): Float32Array {
   const attributes = new Float32Array(topology.vertexCount * 4);
-  updateCellFillAttributes(
-    attributes,
-    topology,
-    source,
-    topology.cellRanges.map(range => range.cellId)
-  );
+  for (const range of topology.cellRanges)
+    writeCellColor(attributes, range.vertexOffset, range.vertexCount, range.cellId, colorResolver);
   return attributes;
 }
 
@@ -27,31 +29,55 @@ export function updateCellFillAttributes(
   attributes: Float32Array,
   topology: RetainedCellTopology,
   source: CellFillAttributeSource,
-  cellIds: Iterable<number>
+  cellIds: Iterable<number>,
+  colorResolver = createCellFillColorResolver(source)
 ): CellFillAttributeUpdate | null {
   let firstVertex = Number.POSITIVE_INFINITY;
   let lastVertex = -1;
-  const fallback = parseColor(source.fallbackColor) ?? [0.533, 0.533, 0.533];
 
   for (const cellId of cellIds) {
     const rangeIndex = topology.cellRangeIndices[cellId] ?? -1;
     const range = rangeIndex < 0 ? undefined : topology.cellRanges[rangeIndex];
     if (!range) continue;
-    const groupId = source.assignments[cellId];
-    const color =
-      source.heights[cellId] >= 20 && groupId ? (parseColor(source.colors[groupId]?.color) ?? fallback) : null;
-    for (let vertex = range.vertexOffset; vertex < range.vertexOffset + range.vertexCount; vertex++) {
-      const offset = vertex * 4;
-      attributes[offset] = color?.[0] ?? 0;
-      attributes[offset + 1] = color?.[1] ?? 0;
-      attributes[offset + 2] = color?.[2] ?? 0;
-      attributes[offset + 3] = color ? 1 : 0;
-    }
+    writeCellColor(attributes, range.vertexOffset, range.vertexCount, cellId, colorResolver);
     firstVertex = Math.min(firstVertex, range.vertexOffset);
     lastVertex = Math.max(lastVertex, range.vertexOffset + range.vertexCount);
   }
 
   return lastVertex < 0 ? null : { vertexCount: lastVertex - firstVertex, vertexOffset: firstVertex };
+}
+
+type CellColor = readonly [number, number, number];
+
+export function createCellFillColorResolver(source: CellFillAttributeSource): CellFillColorResolver {
+  const fallback = parseColor(source.fallbackColor) ?? [0.533, 0.533, 0.533];
+  const colors = new Map<number, CellColor>();
+  return cellId => {
+    const groupId = source.assignments[cellId];
+    if (source.heights[cellId] < 20 || !groupId) return null;
+    const cached = colors.get(groupId);
+    if (cached) return cached;
+    const color = parseColor(source.colors[groupId]?.color) ?? fallback;
+    colors.set(groupId, color);
+    return color;
+  };
+}
+
+function writeCellColor(
+  attributes: Float32Array,
+  vertexOffset: number,
+  vertexCount: number,
+  cellId: number,
+  colorResolver: CellFillColorResolver
+): void {
+  const color = colorResolver(cellId);
+  for (let vertex = vertexOffset; vertex < vertexOffset + vertexCount; vertex++) {
+    const offset = vertex * 4;
+    attributes[offset] = color?.[0] ?? 0;
+    attributes[offset + 1] = color?.[1] ?? 0;
+    attributes[offset + 2] = color?.[2] ?? 0;
+    attributes[offset + 3] = color ? 1 : 0;
+  }
 }
 
 export function parseColor(color: string | undefined): readonly [number, number, number] | null {

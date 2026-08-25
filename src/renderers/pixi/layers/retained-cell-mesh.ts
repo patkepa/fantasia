@@ -1,8 +1,13 @@
-import { Buffer, BufferUsage, Geometry, Mesh, Shader } from "pixi.js";
+import { Buffer, BufferUsage, Container, Geometry, Mesh, Shader } from "pixi.js";
 import type { RendererResourceTracker } from "../../core/resource-budget";
-import { type CellFillAttributeSource, updateCellFillAttributes } from "../../scene/layers/cell-fill-attributes";
-import { buildCellFillScene, type CellLayerId } from "../../scene/layers/cell-fill-scene";
-import type { RetainedCellTopology } from "../../scene/layers/retained-cell-topology";
+import {
+  buildCellFillAttributes,
+  type CellFillAttributeSource,
+  type CellFillColorResolver,
+  createCellFillColorResolver,
+  updateCellFillAttributes
+} from "../../scene/layers/cell-fill-attributes";
+import { getRetainedCellTopologyTiles, type RetainedCellTopology } from "../../scene/layers/retained-cell-topology";
 
 const vertex = /* glsl */ `
   in vec2 aPosition;
@@ -79,47 +84,27 @@ interface SharedPositionBuffer {
   resources?: RendererResourceTracker;
 }
 
+interface CellMeshTile {
+  colorBuffer: Buffer;
+  geometry: Geometry;
+  mesh: Mesh<Geometry, Shader>;
+  resourceIds: readonly string[];
+  sharedPositionBuffer: SharedPositionBuffer;
+  topology: RetainedCellTopology;
+}
+
 export class RetainedCellMesh {
-  readonly mesh: Mesh<Geometry, Shader>;
-  private readonly colorBuffer: Buffer;
-  private readonly geometry: Geometry;
+  readonly mesh: Container;
   private readonly shader: Shader;
-  private readonly resourceIds: readonly string[];
-  private readonly sharedPositionBuffer: SharedPositionBuffer;
+  private readonly tiles: readonly CellMeshTile[];
   private static readonly positionBuffers = new WeakMap<RetainedCellTopology, SharedPositionBuffer>();
   private static sequence = 0;
 
   constructor(
-    private readonly topology: RetainedCellTopology,
+    topology: RetainedCellTopology,
     source: CellFillAttributeSource,
-    layer: CellLayerId,
     private readonly resources?: RendererResourceTracker
   ) {
-    const scene = buildCellFillScene(topology, source, layer);
-    const resourcePrefix = `retained-cells:${++RetainedCellMesh.sequence}`;
-    this.resourceIds = [`${resourcePrefix}:colors`, `${resourcePrefix}:indices`];
-    this.sharedPositionBuffer = RetainedCellMesh.acquirePositionBuffer(topology, resources);
-    resources?.acquire(this.resourceIds[0], "geometry", scene.colors?.byteLength ?? 0);
-    resources?.acquire(this.resourceIds[1], "geometry", scene.indices.byteLength);
-    this.colorBuffer = new Buffer({
-      data: scene.colors,
-      label: "retained-cell-colors",
-      shrinkToFit: false,
-      usage: BufferUsage.VERTEX | BufferUsage.COPY_DST
-    });
-    const indexBuffer = new Buffer({
-      data: scene.indices,
-      label: "retained-cell-indices",
-      usage: BufferUsage.INDEX | BufferUsage.STATIC
-    });
-    this.geometry = new Geometry({
-      attributes: {
-        aColor: { buffer: this.colorBuffer, format: "float32x4" },
-        aPosition: { buffer: this.sharedPositionBuffer.buffer, format: "float32x2" }
-      },
-      indexBuffer,
-      topology: "triangle-list"
-    });
     this.shader = Shader.from({
       gl: { fragment, name: "retained-cell-fill", vertex },
       gpu: {
@@ -128,24 +113,85 @@ export class RetainedCellMesh {
       },
       resources: {}
     });
-    this.mesh = new Mesh({ geometry: this.geometry, shader: this.shader });
-    this.mesh.cullable = true;
+    this.mesh = new Container();
     this.mesh.eventMode = "none";
+    const colorResolver = createCellFillColorResolver(source);
+    this.tiles = getRetainedCellTopologyTiles(topology).map(tile => this.createTile(tile, source, colorResolver));
+    for (const tile of this.tiles) this.mesh.addChild(tile.mesh);
   }
 
   update(source: CellFillAttributeSource, cellIds: Iterable<number>): void {
-    const update = updateCellFillAttributes(this.colorBuffer.data as Float32Array, this.topology, source, cellIds);
-    if (update) this.colorBuffer.update();
+    const ids = [...new Set(cellIds)];
+    if (!ids.length) return;
+    const colorResolver = createCellFillColorResolver(source);
+    const tileCellCount = this.tiles.reduce((count, tile) => count + tile.topology.cellRanges.length, 0);
+    const shouldScanRequestedIds = ids.length * this.tiles.length <= tileCellCount;
+    const requested = shouldScanRequestedIds ? null : new Set(ids);
+
+    for (const tile of this.tiles) {
+      const matchingIds = shouldScanRequestedIds
+        ? ids.filter(cellId => (tile.topology.cellRangeIndices[cellId] ?? -1) >= 0)
+        : tile.topology.cellRanges.filter(range => requested!.has(range.cellId)).map(range => range.cellId);
+      if (!matchingIds.length) continue;
+      const update = updateCellFillAttributes(
+        tile.colorBuffer.data as Float32Array,
+        tile.topology,
+        source,
+        matchingIds,
+        colorResolver
+      );
+      if (update) tile.colorBuffer.update();
+    }
   }
 
   destroy(): void {
     this.mesh.removeFromParent();
-    this.mesh.destroy();
-    this.geometry.destroy();
-    this.colorBuffer.destroy();
+    for (const tile of this.tiles) {
+      tile.mesh.removeFromParent();
+      tile.mesh.destroy();
+      tile.geometry.destroy();
+      tile.colorBuffer.destroy();
+      RetainedCellMesh.releasePositionBuffer(tile.topology, tile.sharedPositionBuffer);
+      for (const resourceId of tile.resourceIds) this.resources?.release(resourceId);
+    }
+    this.mesh.destroy({ children: false });
     this.shader.destroy();
-    RetainedCellMesh.releasePositionBuffer(this.topology, this.sharedPositionBuffer);
-    for (const resourceId of this.resourceIds) this.resources?.release(resourceId);
+  }
+
+  private createTile(
+    topology: RetainedCellTopology,
+    source: CellFillAttributeSource,
+    colorResolver: CellFillColorResolver
+  ): CellMeshTile {
+    const colors = buildCellFillAttributes(topology, source, colorResolver);
+    const resourcePrefix = `retained-cells:${++RetainedCellMesh.sequence}`;
+    const resourceIds = [`${resourcePrefix}:colors`, `${resourcePrefix}:indices`];
+    const sharedPositionBuffer = RetainedCellMesh.acquirePositionBuffer(topology, this.resources);
+    this.resources?.acquire(resourceIds[0], "geometry", colors.byteLength);
+    this.resources?.acquire(resourceIds[1], "geometry", topology.indices.byteLength);
+    const colorBuffer = new Buffer({
+      data: colors,
+      label: "retained-cell-colors",
+      shrinkToFit: false,
+      usage: BufferUsage.VERTEX | BufferUsage.COPY_DST
+    });
+    const indexBuffer = new Buffer({
+      data: topology.indices,
+      label: "retained-cell-indices",
+      usage: BufferUsage.INDEX | BufferUsage.STATIC
+    });
+    const geometry = new Geometry({
+      attributes: {
+        aColor: { buffer: colorBuffer, format: "float32x4" },
+        aPosition: { buffer: sharedPositionBuffer.buffer, format: "float32x2" }
+      },
+      indexBuffer,
+      topology: "triangle-list"
+    });
+    const mesh = new Mesh({ geometry, shader: this.shader });
+    mesh.cullable = true;
+    mesh.eventMode = "none";
+    return { colorBuffer, geometry, mesh, resourceIds, sharedPositionBuffer, topology };
   }
 
   private static acquirePositionBuffer(

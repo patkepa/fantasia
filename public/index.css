@@ -98,7 +98,9 @@ iframe {
 #map.pixi-renderer-active {
   position: relative;
   z-index: 0;
-  background-color: transparent;
+  /* Style presets retain #map's legacy black SVG fallback inline. The SVG remains above the Pixi canvas for input
+     and overlays, so its backdrop must never obscure the rendered map once Pixi has mounted. */
+  background-color: transparent !important;
 }
 
 #map.pixi-renderer-active #ocean,

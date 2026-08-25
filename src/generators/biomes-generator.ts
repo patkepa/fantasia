@@ -1,4 +1,3 @@
-import { mean } from "d3";
 import { rn } from "../utils";
 
 export interface Biome {
@@ -114,11 +113,14 @@ class BiomesGenerator {
       let moisture = prec[gridReference[cellId]];
       if (riverIds[cellId]) moisture += Math.max(flux[cellId] / 10, 2);
 
-      const moistAround = neighbors[cellId]
-        .filter((neibCellId: number) => heights[neibCellId] >= this.MIN_LAND_HEIGHT)
-        .map((c: number) => prec[gridReference[c]])
-        .concat([moisture]);
-      return rn(4 + (mean(moistAround) as number));
+      let moistureSum = moisture;
+      let moistureCount = 1;
+      for (const neighborId of neighbors[cellId]) {
+        if (heights[neighborId] < this.MIN_LAND_HEIGHT) continue;
+        moistureSum += prec[gridReference[neighborId]];
+        moistureCount++;
+      }
+      return rn(4 + moistureSum / moistureCount);
     };
 
     for (let cellId = 0; cellId < heights.length; cellId++) {

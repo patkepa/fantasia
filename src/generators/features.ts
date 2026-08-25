@@ -103,19 +103,21 @@ class FeatureModule {
     const cellsNumber = i.length;
     const distanceField = new Int8Array(cellsNumber); // gird.cells.t
     const featureIds = new Uint16Array(cellsNumber); // gird.cells.f
+    const queue = new Int32Array(cellsNumber);
     const features: GridFeature[] = [];
 
     let firstCell = 0;
     let nextUnmarked = 0;
     for (let featureId = 1; firstCell !== -1; featureId++) {
-      const queue = [firstCell];
+      let queueLength = 1;
+      queue[0] = firstCell;
       featureIds[firstCell] = featureId;
 
       const land = heights[firstCell] >= 20;
       let border = false; // set true if feature touches map edge
 
-      while (queue.length) {
-        const cellId = queue.pop() as number;
+      while (queueLength) {
+        const cellId = queue[--queueLength];
         if (!border && borderCells[cellId]) border = true;
 
         for (const neighborId of neighbors[cellId]) {
@@ -123,7 +125,7 @@ class FeatureModule {
 
           if (land === isNeibLand && featureIds[neighborId] === this.UNMARKED) {
             featureIds[neighborId] = featureId;
-            queue.push(neighborId);
+            queue[queueLength++] = neighborId;
           } else if (land && !isNeibLand) {
             distanceField[cellId] = this.LAND_COAST;
             distanceField[neighborId] = this.WATER_COAST;
@@ -158,12 +160,19 @@ class FeatureModule {
    */
   markupPack() {
     const defineHaven = (cellId: number) => {
-      const waterCells = neighbors[cellId].filter((index: number) => isWater(index, pack));
-      const distances = waterCells.map((neibCellId: number) => distanceSquared(cells.p[cellId], cells.p[neibCellId]));
-      const closest = distances.indexOf(Math.min.apply(Math, distances));
-
-      haven[cellId] = waterCells[closest];
-      harbor[cellId] = waterCells.length;
+      let closestWaterCell = 0;
+      let closestDistance = Number.POSITIVE_INFINITY;
+      let waterCellCount = 0;
+      for (const neighborId of neighbors[cellId]) {
+        if (!isWater(neighborId, pack)) continue;
+        waterCellCount++;
+        const distance = distanceSquared(cells.p[cellId], cells.p[neighborId]);
+        if (distance >= closestDistance) continue;
+        closestDistance = distance;
+        closestWaterCell = neighborId;
+      }
+      haven[cellId] = closestWaterCell;
+      harbor[cellId] = waterCellCount;
     };
 
     const getCellsData = (featureType: string, firstCell: number): [number, number[]] => {
@@ -263,20 +272,22 @@ class FeatureModule {
       length: packCellsNumber
     }); // haven: opposite water cell
     const harbor = new Uint8Array(packCellsNumber); // harbor: number of adjacent water cells
+    const queue = new Int32Array(packCellsNumber);
     const features: Feature[] = [];
 
     let firstCell = 0;
     let nextUnmarked = 0;
     for (let featureId = 1; firstCell !== -1; featureId++) {
-      const queue = [firstCell];
+      let queueLength = 1;
+      queue[0] = firstCell;
       featureIds[firstCell] = featureId;
 
       const land = isLand(firstCell, pack);
       let border = Boolean(borderCells[firstCell]); // true if feature touches map border
       let totalCells = 1; // count cells in a feature
 
-      while (queue.length) {
-        const cellId = queue.pop() as number;
+      while (queueLength) {
+        const cellId = queue[--queueLength];
         if (borderCells[cellId]) border = true;
 
         for (const neighborId of neighbors[cellId]) {
@@ -294,7 +305,7 @@ class FeatureModule {
           }
 
           if (!featureIds[neighborId] && land === isNeibLand) {
-            queue.push(neighborId);
+            queue[queueLength++] = neighborId;
             featureIds[neighborId] = featureId;
             totalCells++;
           }

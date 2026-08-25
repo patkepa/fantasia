@@ -1,5 +1,5 @@
 import Alea from "alea";
-import { curveBasis, curveCatmullRom, line, mean, min, sum } from "d3";
+import { curveBasis, curveCatmullRom, line, min, sum } from "d3";
 import { each, rn, round, rw } from "../utils";
 import { meander, projectToNearestEdge } from "../utils/meander";
 import type { Label } from "./labels-generator";
@@ -370,8 +370,14 @@ class RiverModule {
         if (cells.h[i] < 35) continue; // don't donwcut lowlands
         if (!cells.fl[i]) continue;
 
-        const higherCells = cells.c[i].filter((c: number) => cells.h[c] > cells.h[i]);
-        const higherFlux = higherCells.reduce((acc: number, c: number) => acc + cells.fl[c], 0) / higherCells.length;
+        let higherCellCount = 0;
+        let higherFluxSum = 0;
+        for (const neighborId of cells.c[i]) {
+          if (cells.h[neighborId] <= cells.h[i]) continue;
+          higherCellCount++;
+          higherFluxSum += cells.fl[neighborId];
+        }
+        const higherFlux = higherFluxSum / higherCellCount;
         if (!higherFlux) continue;
 
         const downcut = Math.floor(cells.fl[i] / higherFlux);
@@ -383,14 +389,19 @@ class RiverModule {
       for (const i of cells.i) {
         if (!cells.conf[i]) continue;
 
-        const sortedInflux = cells.c[i]
-          .filter((c: number) => cells.r[c] && h[c] > h[i])
-          .map((c: number) => cells.fl[c])
-          .sort((a: number, b: number) => b - a);
-        cells.conf[i] = sortedInflux.reduce(
-          (acc: number, flux: number, index: number) => (index ? acc + flux : acc),
-          0
-        );
+        let largestInflux = 0;
+        let confluenceInflux = 0;
+        for (const neighborId of cells.c[i]) {
+          if (!cells.r[neighborId] || h[neighborId] <= h[i]) continue;
+          const influx = cells.fl[neighborId];
+          if (influx > largestInflux) {
+            confluenceInflux += largestInflux;
+            largestInflux = influx;
+          } else {
+            confluenceInflux += influx;
+          }
+        }
+        cells.conf[i] = confluenceInflux;
       }
     };
 
@@ -422,10 +433,19 @@ class RiverModule {
       c: number[][];
       t: Uint8Array;
     };
-    return Array.from(h).map((h, i) => {
-      if (h < 20 || t[i] < 1) return h;
-      return h + t[i] / 100 + (mean(c[i].map(c => t[c])) as number) / 10000;
-    });
+    const altered = new Array<number>(h.length);
+    for (let cellId = 0; cellId < h.length; cellId++) {
+      const height = h[cellId];
+      if (height < 20 || t[cellId] < 1) {
+        altered[cellId] = height;
+        continue;
+      }
+      let neighborTemperatureSum = 0;
+      for (const neighborId of c[cellId]) neighborTemperatureSum += t[neighborId];
+      const neighborTemperature = neighborTemperatureSum / c[cellId].length;
+      altered[cellId] = height + t[cellId] / 100 + neighborTemperature / 10000;
+    }
+    return altered;
   }
 
   // depression filling algorithm (for a correct water flux modeling)

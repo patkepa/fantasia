@@ -2,18 +2,7 @@
 // Fantasia application runtime
 
 import Alea from "alea";
-import {
-  interpolateSpectral,
-  leastIndex,
-  max,
-  mean,
-  median,
-  min,
-  polygonArea,
-  range,
-  scaleSequential,
-  select
-} from "d3";
+import { interpolateSpectral, leastIndex, max, mean, median, polygonArea, range, scaleSequential, select } from "d3";
 import { closeDialogs, closeEditDialogs } from "@/components/dialog/dialog-helpers";
 import { LayerControls } from "@/components/layers/layer-controls";
 import { OptionsController, type RegenerateOptions } from "@/components/options/options-controller";
@@ -605,24 +594,29 @@ function addLakesInDeepDepressions() {
   const { cells, features } = app.grid;
   const { c, h, b } = cells;
   const visited = new Uint32Array(c.length);
+  const queue = new Int32Array(c.length);
   let visit = 0;
 
   for (const i of cells.i) {
     if (b[i] || h[i] < 20) continue;
 
-    const minHeight = min(c[i].map(c => h[c])) ?? h[i];
+    let minHeight = h[i];
+    for (const neighbor of c[i]) {
+      const neighborHeight = h[neighbor];
+      if (neighborHeight < minHeight) minHeight = neighborHeight;
+    }
     if (h[i] > minHeight) continue;
 
     let deep = true;
     const threshold = h[i] + elevationLimit;
-    const queue = [i];
+    let queueLength = 1;
+    queue[0] = i;
     const visitId = ++visit;
     visited[i] = visitId;
 
     // check if elevated cell can potentially pour to water
-    while (deep && queue.length) {
-      const q = queue.pop();
-      if (q === undefined) break;
+    while (deep && queueLength) {
+      const q = queue[--queueLength];
 
       for (const n of c[q]) {
         if (visited[n] === visitId) continue;
@@ -633,7 +627,7 @@ function addLakesInDeepDepressions() {
         }
 
         visited[n] = visitId;
-        queue.push(n);
+        queue[queueLength++] = n;
       }
     }
 
@@ -1023,7 +1017,6 @@ function rankCells() {
   const meanFlux = median(cells.fl.filter(f => f)) || 0;
   const maxFlux = (max(cells.fl) ?? 0) + (max(cells.conf) ?? 0); // to normalize flux
   const meanArea = mean(cells.area) ?? 1; // to adjust population by cell area
-  const getResValue = (i: number): number => (cells.good?.[i] ? (Goods.get(cells.good[i])?.value ?? 0) : 0);
 
   const scoreMap: Record<string, number> = {
     estuary: 15,
@@ -1058,11 +1051,22 @@ function rankCells() {
 
     cells.s[i] = score / 5; // general population rate
     // add bonus for goods around
-    if (cells.good && (cells.good[i] || cells.c[i].some(c => cells.good[c]))) {
-      const cellRes = getResValue(i);
-      const neibRes = mean(cells.c[i].map(c => getResValue(c))) ?? 0;
-      const resBonus = (cellRes ? cellRes + 10 : 0) + neibRes;
-      cells.s[i] += resBonus;
+    if (cells.good) {
+      const cellGood = cells.good[i];
+      let hasNeighborGood = false;
+      let neighborResourceValue = 0;
+      for (const neighbor of cells.c[i]) {
+        const neighborGood = cells.good[neighbor];
+        if (!neighborGood) continue;
+        hasNeighborGood = true;
+        neighborResourceValue += Goods.get(neighborGood)?.value ?? 0;
+      }
+      if (cellGood || hasNeighborGood) {
+        const cellRes = cellGood ? (Goods.get(cellGood)?.value ?? 0) : 0;
+        const neibRes = cells.c[i].length ? neighborResourceValue / cells.c[i].length : 0;
+        const resBonus = (cellRes ? cellRes + 10 : 0) + neibRes;
+        cells.s[i] += resBonus;
+      }
     }
     // cell rural population is suitability adjusted by cell area
     cells.pop[i] = cells.s[i] > 0 ? (cells.s[i] * cells.area[i]) / meanArea : 0;
