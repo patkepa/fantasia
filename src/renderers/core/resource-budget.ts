@@ -16,7 +16,7 @@ export interface RendererResourceSnapshot {
 
 export const DEFAULT_RENDERER_RESOURCE_BUDGET: Readonly<RendererResourceBudget> = {
   geometry: 128 * 1024 * 1024,
-  glyph: 64 * 1024 * 1024,
+  glyph: 192 * 1024 * 1024,
   texture: 256 * 1024 * 1024
 };
 

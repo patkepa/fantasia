@@ -31,8 +31,10 @@ export interface LabelAtlasResolutionRequest {
   resizeOnZoom: boolean;
 }
 
-const MAX_LABEL_ATLAS_RESOLUTION = 8;
-const LABEL_ATLAS_RESOLUTION_MULTIPLIERS = [1, 1.5, 2, 3, 4, 6, 8] as const;
+// Labels can grow to 10.5× at the maximum map zoom. Keep an atlas step above that on a 1× display
+// so city, river, and route text does not need to be magnified after its close-zoom refresh.
+const MAX_LABEL_ATLAS_RESOLUTION = 16;
+const LABEL_ATLAS_RESOLUTION_MULTIPLIERS = [1, 1.5, 2, 3, 4, 6, 8, 12, 16] as const;
 
 export class GlyphAtlasCache {
   private readonly cache: RendererResourceCache<GlyphAtlasDescriptor>;
@@ -48,7 +50,12 @@ export class GlyphAtlasCache {
   }
 
   acquire(group: LabelSceneGroup, resolution: number, resolvedFontFamily: string): Promise<GlyphAtlasHandle> {
-    return this.acquireCharacters(collectGlyphCharacters(group), getGlyphAtlasStyle(group), resolution, resolvedFontFamily);
+    return this.acquireCharacters(
+      collectGlyphCharacters(group),
+      getGlyphAtlasStyle(group),
+      resolution,
+      resolvedFontFamily
+    );
   }
 
   acquireCharacters(

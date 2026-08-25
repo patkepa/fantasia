@@ -21,6 +21,7 @@ export class RenderScheduler {
   private readonly requestFrame: (callback: FrameRequestCallback) => number;
   private frameId: number | null = null;
   private invalidations: RenderInvalidation[] = [];
+  private isRendering = false;
   private destroyed = false;
 
   constructor(render: (batch: RenderInvalidationBatch) => void | Promise<void>, options: RenderSchedulerOptions = {}) {
@@ -34,7 +35,12 @@ export class RenderScheduler {
   invalidate(invalidation: RenderInvalidation): void {
     if (this.destroyed) return;
     this.invalidations.push(invalidation);
-    if (this.frameId !== null) return;
+    if (this.isRendering || this.frameId !== null) return;
+    this.requestFlush();
+  }
+
+  private requestFlush(): void {
+    if (this.destroyed || this.isRendering || this.frameId !== null) return;
     this.frameId = this.requestFrame(() => {
       this.frameId = null;
       void this.flush();
@@ -42,18 +48,24 @@ export class RenderScheduler {
   }
 
   async flush(): Promise<void> {
-    if (this.destroyed || !this.invalidations.length) return;
+    if (this.destroyed || this.isRendering || !this.invalidations.length) return;
     if (this.frameId !== null) this.cancelFrame(this.frameId);
     this.frameId = null;
     const batch = coalesceInvalidations(this.invalidations);
     this.invalidations = [];
     const started = this.now();
-    await this.render(batch);
-    this.onDiagnostic?.({
-      duration: this.now() - started,
-      invalidationCount: batch.invalidations.length,
-      requiresSceneBuild: batch.requiresSceneBuild
-    });
+    this.isRendering = true;
+    try {
+      await this.render(batch);
+      this.onDiagnostic?.({
+        duration: this.now() - started,
+        invalidationCount: batch.invalidations.length,
+        requiresSceneBuild: batch.requiresSceneBuild
+      });
+    } finally {
+      this.isRendering = false;
+      this.requestFlush();
+    }
   }
 
   clear(): void {

@@ -83,4 +83,32 @@ describe("RenderScheduler", () => {
     expect(cancelFrame).toHaveBeenCalledWith(11);
     expect(render).toHaveBeenCalledWith({ invalidations: [{ kind: "camera" }], requiresSceneBuild: false });
   });
+
+  it("serializes renders and schedules invalidations received during async work", async () => {
+    const callbacks: FrameRequestCallback[] = [];
+    let releaseFirstRender: (() => void) | undefined;
+    const firstRender = new Promise<void>(resolve => {
+      releaseFirstRender = resolve;
+    });
+    const render = vi.fn(() => (render.mock.calls.length === 1 ? firstRender : Promise.resolve()));
+    const scheduler = new RenderScheduler(render, {
+      requestFrame: next => {
+        callbacks.push(next);
+        return callbacks.length;
+      }
+    });
+
+    scheduler.invalidate({ kind: "world" });
+    callbacks.shift()!(0);
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+
+    scheduler.invalidate({ kind: "camera" });
+    expect(callbacks).toHaveLength(0);
+    releaseFirstRender!();
+    await vi.waitFor(() => expect(callbacks).toHaveLength(1));
+
+    callbacks.shift()!(0);
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
+    expect(render).toHaveBeenLastCalledWith({ invalidations: [{ kind: "camera" }], requiresSceneBuild: false });
+  });
 });

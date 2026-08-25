@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildCoastalAssignmentScene } from "./coastal-assignment-scene";
+import {
+  buildCoastalAssignmentEdges,
+  buildCoastalAssignmentScene,
+  buildCoastalAssignmentSceneFromEdges
+} from "./coastal-assignment-scene";
 
 const source = {
   cells: {
@@ -50,5 +54,14 @@ describe("coastal assignment scene", () => {
 
     expect(scene.paths.some(path => path.role === "7")).toBe(true);
     expect(scene.paths.some(path => path.role === "8")).toBe(true);
+  });
+
+  it("reuses topology-derived shoreline edges across assignment changes", () => {
+    const edges = buildCoastalAssignmentEdges(source);
+    const assignments = Uint8Array.from([7, 0, 8]);
+
+    expect(buildCoastalAssignmentSceneFromEdges(edges, assignments, "states", "states:2")).toEqual(
+      buildCoastalAssignmentScene(source, assignments, "states", "states:2")
+    );
   });
 });

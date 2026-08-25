@@ -50,7 +50,11 @@ import { buildBaseGeographyScene } from "../scene/layers/base-geography-scene";
 import { buildBorderScene } from "../scene/layers/border-paths";
 import { buildCellOutlineScene } from "../scene/layers/cell-outline-scene";
 import { buildPrecipitationScene, buildTemperatureScene } from "../scene/layers/climate-scene";
-import { buildCoastalAssignmentScene } from "../scene/layers/coastal-assignment-scene";
+import {
+  buildCoastalAssignmentEdges,
+  buildCoastalAssignmentSceneFromEdges,
+  type CoastalAssignmentEdge
+} from "../scene/layers/coastal-assignment-scene";
 import {
   buildCoordinateScene,
   type CoordinateSceneLabel,
@@ -102,7 +106,7 @@ import {
   selectLabelAtlasResolution
 } from "./glyph-atlas-cache";
 import { RetainedCellMesh } from "./layers/retained-cell-mesh";
-import { MapPickingIndex } from "./map-picking-index";
+import { MapPickingIndex, type MapPickSceneSources } from "./map-picking-index";
 
 export interface PixiRendererSnapshot {
   batches: number;
@@ -269,6 +273,14 @@ export class PixiMapRenderer implements MapRenderer {
   private contextRecoveryRelease: (() => void) | null = null;
   private diagnostics = new RenderDiagnostics();
   private cellFillGeography: CellFillGeography | null = null;
+  private coastalAssignmentEdges: {
+    cellHeights: ArrayLike<number>;
+    cellIds: ArrayLike<number>;
+    cellVertices: readonly number[][];
+    edges: readonly CoastalAssignmentEdge[];
+    vertexCells: readonly number[][];
+    vertexPoints: readonly [number, number][];
+  } | null = null;
   private cellMeshes = new Map<CellFillLayer, CellMeshDisplay>();
   private coordinateGroupDisplays: CoordinateGroupDisplay[] = [];
   private coordinateLabelDisplays: CoordinateLabelDisplay[] = [];
@@ -294,6 +306,7 @@ export class PixiMapRenderer implements MapRenderer {
   private markerDisplays = new Map<number, { container: Container; baseSize: number; rescale: boolean }>();
   private pointTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private pickingIndex = new MapPickingIndex();
+  private pickSceneSources: MapPickSceneSources = {};
   private rebuildSequence = 0;
   private retainedCellMeshes = new Set<RetainedCellMesh>();
   private reliefTextureHandles = new Set<RendererResourceHandle<Texture>>();
@@ -510,7 +523,7 @@ export class PixiMapRenderer implements MapRenderer {
     const markerSymbols = markers.children.length;
     const reliefSprites = relief.children.length;
     const batches = this.app.stage.children.reduce((total, child) => total + Math.max(1, child.children.length), 0);
-    this.pickingIndex.replace(world, this.semanticStyle, this.getVisibleLayers());
+    this.pickingIndex.replace(world, this.semanticStyle, this.getVisibleLayers(), this.pickSceneSources);
 
     this.recordPerformance("pixi:scene-build", performance.now() - started);
 
@@ -960,8 +973,8 @@ export class PixiMapRenderer implements MapRenderer {
     const geography = this.cellFillGeography;
     if (!geography || geography.coastlineOverdrawWidth <= 0) return;
 
-    const scene = buildCoastalAssignmentScene(
-      this.getWorld(),
+    const scene = buildCoastalAssignmentSceneFromEdges(
+      this.getCoastalAssignmentEdges(),
       source.assignments,
       layer,
       this.sceneRevisions.getLayerRevision(layer)
@@ -1024,6 +1037,7 @@ export class PixiMapRenderer implements MapRenderer {
     const world = this.getWorld();
     const bounds = getWorldBounds(world);
     const scene = buildBaseGeographyScene(world, bounds, this.sceneRevisions.getLayerRevision("landmass"));
+    this.pickSceneSources.baseGeography = scene;
     this.cellFillGeography = {
       bounds,
       coastlineOverdrawWidth: scene.coastlineOverdrawWidth,
@@ -1332,6 +1346,7 @@ export class PixiMapRenderer implements MapRenderer {
       this.semanticStyle.emblems,
       this.sceneRevisions.getLayerRevision("emblems")
     );
+    this.pickSceneSources.emblems = scene;
     container.alpha = scene.opacity;
     this.stats.unsupportedEmblemEffects = [...scene.unsupportedEffects];
     const activeTextureKeys = new Set(scene.groups.flatMap(group => group.items.map(item => item.textureKey)));
@@ -1404,6 +1419,7 @@ export class PixiMapRenderer implements MapRenderer {
     if (!state) return container;
 
     const scene = buildLabelScene(state, this.sceneRevisions.getLayerRevision("labels"));
+    this.pickSceneSources.labels = scene;
     this.labelResizeOnZoom = scene.resizeOnZoom;
     const fontResults = await ensureFontFamiliesReady(scene.groups.map(group => group.style.fontFamily));
     if (sequence !== this.rebuildSequence) return container;
@@ -1516,6 +1532,7 @@ export class PixiMapRenderer implements MapRenderer {
     const container = new Container();
     container.label = "compass";
     const scene = buildCompassScene(this.semanticStyle.compass, this.sceneRevisions.getLayerRevision("compass"));
+    this.pickSceneSources.compass = scene;
     const source = this.rendererOptions.resolveCompassIcon?.();
     if (!source) {
       const graphic = createCompassGraphic();
@@ -1591,6 +1608,7 @@ export class PixiMapRenderer implements MapRenderer {
       getWorldBounds(this.getWorld()),
       this.sceneRevisions.getLayerRevision("rivers")
     );
+    this.pickSceneSources.rivers = scene;
     const container = this.buildPolygonContainer("rivers", scene.polygons, () => ({
       fill: style.fill,
       stroke: { cap: "butt", color: style.fill.color, dash: "", opacity: 0, width: 0 }
@@ -1605,6 +1623,7 @@ export class PixiMapRenderer implements MapRenderer {
 
   private buildRoutesContainer(): Container {
     const scene = buildRouteScene(this.getWorld(), this.sceneRevisions.getLayerRevision("routes"));
+    this.pickSceneSources.routes = scene;
     return this.buildLineContainer(
       "routes",
       scene.paths,
@@ -1700,6 +1719,7 @@ export class PixiMapRenderer implements MapRenderer {
   private buildIceContainer(): Container {
     const style = this.semanticStyle.ice;
     const scene = buildIceScene(this.getWorld(), this.sceneRevisions.getLayerRevision("ice"));
+    this.pickSceneSources.ice = scene;
     const container = this.buildPolygonContainer("ice", scene.polygons, role => style.roles[role] ?? style.default);
     container.alpha = style.opacity;
     return container;
@@ -1711,6 +1731,7 @@ export class PixiMapRenderer implements MapRenderer {
     const world = this.getWorld();
     const style = this.semanticStyle.goods;
     const scene = buildGoodsScene(world, world.goodsProduction, this.sceneRevisions.getLayerRevision("goods"));
+    this.pickSceneSources.goods = scene;
     const iconSources = new Map<string, string>();
     for (const icon of new Set([...scene.icons, ...scene.burgs.flatMap(burg => burg.entries)].map(item => item.icon))) {
       const source = this.rendererOptions.resolveSymbolIcon?.(icon);
@@ -1777,6 +1798,7 @@ export class PixiMapRenderer implements MapRenderer {
     container.label = "markets";
     const style = this.semanticStyle.markets;
     const scene = buildMarketScene(this.getWorld(), this.sceneRevisions.getLayerRevision("markets"));
+    this.pickSceneSources.markets = scene;
     for (const market of scene.markets) {
       if (market.polygons.length) {
         const fill = createPolygonGraphic(market.polygons, {
@@ -1824,6 +1846,7 @@ export class PixiMapRenderer implements MapRenderer {
       this.getWorld().urbanization ?? 1,
       this.sceneRevisions.getLayerRevision("population")
     );
+    this.pickSceneSources.population = scene;
     const container = this.buildLineContainer("population", scene.paths, role =>
       role === "urban" ? style.urban : style.rural
     );
@@ -1836,6 +1859,7 @@ export class PixiMapRenderer implements MapRenderer {
     container.label = "military";
     const style = this.semanticStyle.military;
     const scene = buildMilitaryScene(this.getWorld(), this.sceneRevisions.getLayerRevision("military"));
+    this.pickSceneSources.military = scene;
     const externalSources = new Set(scene.regiments.map(({ icon }) => icon).filter(icon => isExternalImage(icon)));
     const textures = new Map<string, RendererResourceHandle<Texture>>();
     await Promise.all(
@@ -1872,6 +1896,7 @@ export class PixiMapRenderer implements MapRenderer {
     const scene = buildZoneScene(this.getWorld(), this.sceneRevisions.getLayerRevision("zones"), {
       filterType: this.semanticStyle.zones.filterType
     });
+    this.pickSceneSources.zones = scene;
     for (const zone of scene.zones) {
       const graphic = createPolygonGraphic(zone.polygons, {
         fill: { color: getRenderableColor(zone.color, this.semanticStyle.zones.fallbackColor), opacity: 1 },
@@ -1889,6 +1914,7 @@ export class PixiMapRenderer implements MapRenderer {
     container.label = "relief";
     container.alpha = this.semanticStyle.relief.opacity;
     const scene = buildReliefSpriteScene(world.relief ?? [], this.sceneRevisions.getLayerRevision("relief"));
+    this.pickSceneSources.relief = scene;
     if (!scene.instances.length) return container;
 
     const icons = new Set(scene.instances.map(({ icon }) => icon));
@@ -1940,6 +1966,7 @@ export class PixiMapRenderer implements MapRenderer {
       this.semanticStyle.burgIcons,
       this.sceneRevisions.getLayerRevision("burgIcons")
     );
+    this.pickSceneSources.burgIcons = scene;
     const allInstances = [...scene.icons.instances, ...scene.anchors.instances];
     const customSymbols = new Map(
       allInstances
@@ -2010,6 +2037,7 @@ export class PixiMapRenderer implements MapRenderer {
       world.markerRenderState ?? { pinnedOnly: false, visibleIds: null },
       this.sceneRevisions.getLayerRevision("markers")
     );
+    this.pickSceneSources.markers = scene;
     const externalSources = new Set(
       scene.instances.map(({ icon }) => icon).filter((icon): icon is string => Boolean(icon && isExternalImage(icon)))
     );
@@ -2061,6 +2089,7 @@ export class PixiMapRenderer implements MapRenderer {
     this.retainedCellMeshes.clear();
     this.cellMeshes.clear();
     this.cellFillGeography = null;
+    this.pickSceneSources = {};
     this.coordinateGroupDisplays = [];
     this.coordinateLabelDisplays = [];
     this.coordinateLongitudeSpan = 0;
@@ -2172,6 +2201,31 @@ export class PixiMapRenderer implements MapRenderer {
       revision: `${this.sceneRevisions.getTopologyRevision()}:source:${this.topologyRevision}`,
       vertexPoints: inputs.vertexPoints
     });
+  }
+
+  private getCoastalAssignmentEdges(): readonly CoastalAssignmentEdge[] {
+    const world = this.getWorld();
+    const cached = this.coastalAssignmentEdges;
+    if (
+      cached &&
+      cached.cellHeights === world.cells.h &&
+      cached.cellIds === world.cells.i &&
+      cached.cellVertices === world.cells.v &&
+      cached.vertexCells === world.vertices.c &&
+      cached.vertexPoints === world.vertices.p
+    ) {
+      return cached.edges;
+    }
+    const edges = buildCoastalAssignmentEdges(world);
+    this.coastalAssignmentEdges = {
+      cellHeights: world.cells.h,
+      cellIds: world.cells.i,
+      cellVertices: world.cells.v,
+      edges,
+      vertexCells: world.vertices.c,
+      vertexPoints: world.vertices.p
+    };
+    return edges;
   }
 
   private updateLabelDisplays(): void {
@@ -2335,7 +2389,13 @@ export class PixiMapRenderer implements MapRenderer {
       this.replaceLayerContainer(layer, container);
       this.dirtyLayers.delete(layer);
     }
-    this.pickingIndex.updateLayers(this.world, this.semanticStyle, layers, this.getVisibleLayers());
+    this.pickingIndex.updateLayers(
+      this.world,
+      this.semanticStyle,
+      layers,
+      this.getVisibleLayers(),
+      this.pickSceneSources
+    );
     this.applyLayerOrder();
     this.applyVisibility(false);
     this.app.render();
@@ -2441,7 +2501,7 @@ export class PixiMapRenderer implements MapRenderer {
         fallbackColor: style.fallbackColor
       });
     }
-    this.pickingIndex.updateLayers(world, this.semanticStyle, layers, this.getVisibleLayers());
+    this.pickingIndex.updateLayers(world, this.semanticStyle, layers, this.getVisibleLayers(), this.pickSceneSources);
     this.stats.pickingEntries = this.pickingIndex.getSize();
     this.app.render();
     this.commitSceneChange("content");
