@@ -1,5 +1,7 @@
 // Default interaction on the map canvas: pan/zoom, click-to-edit and hover tooltips
 import { drag, select } from "d3";
+import { setViewSessionSelection } from "@/application/view-session-state";
+import { getWorkspaceMode } from "@/application/workspace-mode";
 import { Controllers } from "@/controllers";
 import type { LabelType } from "@/generators/labels-generator";
 import type { MapHit } from "@/renderers/core/map-renderer";
@@ -7,6 +9,7 @@ import { dragLegendBox } from "@/renderers/draw-legend";
 import { ensureMapInteractionSurface } from "@/renderers/interaction/map-interaction-overlay";
 import { getPixiMapPointAtClient, pickPixiRenderer } from "@/renderers/pixi/pixi-renderer-controller";
 import { debounce, findClosestCell } from "@/utils";
+import { selectCountry } from "./country-selection";
 import { buildMapContext } from "./map-context";
 import { handleMouseMove } from "./map-tooltip";
 import { applyZoomBehavior } from "./zoom";
@@ -65,6 +68,11 @@ const GREAT_EDITORS: Record<string, Opener> = {
 /** Handle a click on the map: open the editor for the clicked element */
 function onClick(event: MouseEvent): void {
   const hit = pickPixiRenderer(event.clientX, event.clientY);
+  if (getWorkspaceMode() === "view") {
+    inspectMapPoint(event, hit);
+    return;
+  }
+  if (hit?.domainKind === "state" && selectCountry(Number(hit.domainId))) return;
   if (hit && openMapHit(hit)) return;
 
   const target = event?.target as SVGElement | null;
@@ -72,12 +80,19 @@ function onClick(event: MouseEvent): void {
   const grand = parent?.parentElement as SVGElement | null;
   const great = grand?.parentElement as SVGElement | null;
   const ancestor = great?.parentElement as SVGElement | null;
-  if (!target || !parent || !grand || !great || !ancestor) return;
+  if (!target || !parent || !grand || !great || !ancestor) {
+    inspectMapPoint(event, hit);
+    return;
+  }
 
   const label = target.closest<SVGTextElement>("#labels text[data-label-type]");
   if (label) {
     const id = Number(label.dataset.id);
     const type = label.dataset.labelType as LabelType;
+    if (type === "state") {
+      inspectMapPoint(event, hit);
+      return;
+    }
     if (type === "burg") {
       const burgEditor = document.getElementById("burgEditor");
       const isBurgEditorOpen = burgEditor?.dataset.burgId === String(id);
@@ -88,7 +103,33 @@ function onClick(event: MouseEvent): void {
   }
 
   const open = PARENT_EDITORS[parent.id] || GRAND_EDITORS[grand.id] || GREAT_EDITORS[great.id];
-  open?.(target, parent);
+  if (open) {
+    open(target, parent);
+    return;
+  }
+  inspectMapPoint(event, hit);
+}
+
+function inspectMapPoint(event: MouseEvent, hit: MapHit | null): void {
+  if (hit?.domainKind === "burg") {
+    Controllers.BurgInfo.open(Number(hit.domainId));
+    return;
+  }
+  const point = getPixiMapPointAtClient(event.clientX, event.clientY);
+  if (!point) return;
+  const cellId = findClosestCell(point.x, point.y, undefined, pack);
+  if (cellId === undefined) return;
+  const countryId = pack.cells.state[cellId];
+  if (!event.shiftKey && getWorkspaceMode() === "view" && countryId && selectCountry(countryId)) {
+    setViewSessionSelection({ cellId, domainId: String(countryId), domainKind: "state" });
+    return;
+  }
+  setViewSessionSelection({
+    cellId,
+    domainId: hit?.domainId === undefined ? undefined : String(hit.domainId),
+    domainKind: hit?.domainKind
+  });
+  if (event.shiftKey) Controllers.CellInfo.openAt([point.x, point.y]);
 }
 
 function openMapHit(hit: MapHit): boolean {
@@ -96,6 +137,7 @@ function openMapHit(hit: MapHit): boolean {
   if (hit.domainKind === "label") {
     const entityId = Number(hit.subPart?.entityId);
     const type = String(hit.subPart?.type) as LabelType;
+    if (type === "state") return false;
     if (type === "burg") {
       const burgEditor = document.getElementById("burgEditor");
       if (burgEditor?.dataset.burgId === String(entityId)) Controllers.LabelsEditor.open(type, entityId);

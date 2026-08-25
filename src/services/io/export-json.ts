@@ -17,7 +17,7 @@ function exportToJson(type: ExportJsonType): void {
     tip("Data cannot be exported when edit mode is active, please exit the mode and retry", false, "error");
     return;
   }
-  closeDialogs("#alert");
+  closeDialogs();
 
   TIME && console.time("exportToJson");
   const mapData = typeMap[type]();
@@ -94,7 +94,7 @@ function getGridDataJson(): string {
 function getMapInfo() {
   return {
     version: VERSION,
-    description: "Azgaar's Fantasy Map Generator output: azgaar.github.io/Fantasy-map-generator",
+    description: "Fantasia output: patkepa.github.io/fantasia",
     exportedAt: new Date().toISOString(),
     mapName: mapName.value,
     width: graphWidth,

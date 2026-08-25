@@ -1,28 +1,34 @@
 // Background save lifecycle: the autosave timer and the periodic "remember to save" reminder
 
+import { getWorkspaceMode } from "@/application/workspace-mode";
 import { tip } from "@/components/tooltips";
-import { MAP_CONTENT_CHANGED_EVENT } from "@/renderers/pixi/pixi-renderer-controller";
 import { Services } from "@/services";
+import { createDocumentDirtyState } from "@/services/document-dirty-state";
 import { ensureEl, ra } from "@/utils";
+import { MAP_MUTATED_EVENT } from "./map-mutation";
 
 const MINUTE = 60000; // minute in milliseconds
 
 export function initiateAutosave(): void {
   let lastSavedAt = Date.now();
-  let dirty = false;
-  const markDirty = () => {
-    dirty = true;
-  };
+  const dirtyState = createDocumentDirtyState(getWorkspaceMode);
+  const markDirty = () => dirtyState.mark();
 
-  window.addEventListener(MAP_CONTENT_CHANGED_EVENT, markDirty);
-  window.addEventListener("map:generated", markDirty);
-  document.addEventListener("change", markDirty, { capture: true });
-  document.addEventListener("input", markDirty, { capture: true });
+  window.addEventListener(MAP_MUTATED_EVENT, markDirty);
+  document.addEventListener("change", markLegacyDocumentControlDirty, { capture: true });
+  document.addEventListener("input", markLegacyDocumentControlDirty, { capture: true });
+
+  function markLegacyDocumentControlDirty(event: Event): void {
+    if (getWorkspaceMode() !== "edit") return;
+    const target = event.target as Element | null;
+    if (!target || target.closest("#mapLayers, #mapPreviewRoot")) return;
+    markDirty();
+  }
   window.addEventListener("map:loaded", () => {
-    dirty = false;
+    dirtyState.clear();
   });
   window.addEventListener("map:saved", () => {
-    dirty = false;
+    dirtyState.clear();
     lastSavedAt = Date.now();
   });
 
@@ -32,7 +38,7 @@ export function initiateAutosave(): void {
 
     const diffInMinutes = (Date.now() - lastSavedAt) / MINUTE;
     if (diffInMinutes < timeoutMinutes) return;
-    if (!dirty) return;
+    if (!dirtyState.isDirty()) return;
     if (customization) return tip("Autosave: map cannot be saved in edit mode", false, "warn", 2000);
 
     try {
@@ -41,7 +47,7 @@ export function initiateAutosave(): void {
       tip("Autosave: map is saved", false, "success", 2000);
 
       lastSavedAt = Date.now();
-      dirty = false;
+      dirtyState.clear();
     } catch (error) {
       ERROR && console.error(error);
       tip(`Autosave failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 4000);

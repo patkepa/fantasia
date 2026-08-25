@@ -1,5 +1,6 @@
 import Alea from "alea";
 import { max } from "d3";
+import { PriorityQueue } from "@/utils/priority-queue";
 import { ensureEl, gauss, generateSeed, getMixedColor, getPolesOfInaccessibility, P, rand, rw } from "../utils";
 import type { Label } from "./labels-generator";
 
@@ -153,7 +154,7 @@ class ProvinceModule {
     });
 
     // expand generated provinces
-    const queue = new FlatQueue();
+    const queue = new PriorityQueue<{ e: number; p: number; province: number; state: number }>();
     const cost: number[] = [];
 
     provinces.forEach(p => {
@@ -164,7 +165,7 @@ class ProvinceModule {
     });
 
     while (queue.length) {
-      const { e, p, province, state } = queue.pop();
+      const { e, p, province, state } = queue.pop()!;
 
       cells.c[e].forEach(e => {
         if (isProvinceCellLocked(e)) return; // do not overwrite cell of locked provinces
@@ -233,10 +234,11 @@ class ProvinceModule {
 
         // expand province
         const cost: number[] = [];
+        const provinceQueue = new PriorityQueue<{ e: number; p: number }>();
         cost[center] = 1;
-        queue.push({ e: center, p: 0 }, 0);
-        while (queue.length) {
-          const { e, p } = queue.pop();
+        provinceQueue.push({ e: center, p: 0 }, 0);
+        while (provinceQueue.length) {
+          const { e, p } = provinceQueue.pop()!;
 
           cells.c[e].forEach(nextCellId => {
             if (provinceIds[nextCellId]) return;
@@ -249,7 +251,7 @@ class ProvinceModule {
             if (!cost[nextCellId] || totalCost < cost[nextCellId]) {
               if (land && cells.state[nextCellId] === s.i) provinceIds[nextCellId] = provinceId; // assign province to a cell
               cost[nextCellId] = totalCost;
-              queue.push({ e: nextCellId, p: totalCost }, totalCost);
+              provinceQueue.push({ e: nextCellId, p: totalCost }, totalCost);
             }
           });
         }

@@ -1,11 +1,11 @@
 import { select } from "d3";
 import { ApplicationController } from "@/application/application-controller";
 import { getViewportSurface } from "@/application/viewport-surface";
+import { requireWorkspaceCapability } from "@/application/workspace-mode";
 import { closeDialogs, confirmationDialog } from "@/components/dialog/dialog-helpers";
 import { LayerControls } from "@/components/layers/layer-controls";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
-import { Controllers } from "@/controllers";
 import { ensureMeasurerIds } from "@/generators/measurers-generator";
 import { ensureReliefIconIds } from "@/generators/relief-generator";
 import { WorldGenerationController } from "@/generators/world-generation-controller";
@@ -25,11 +25,12 @@ import {
 } from "@/renderers/scene/height-color-schemes";
 import { Services } from "@/services";
 import { declareFont } from "@/services/fonts";
+import { LocalMapStorage } from "@/services/io/local-map-storage";
 import { cleanupData, compareVersions, isValidVersion, parseMapVersion, VERSION } from "@/services/versioning";
 import { applyOption, calculateVoronoi, ensureEl, last, link, minmax, parseError, rn } from "@/utils";
 
 async function quickLoad(): Promise<void> {
-  const blob = await ldb.get("lastMap");
+  const blob = await LocalMapStorage.get("lastMap");
   if (blob) loadMapPrompt(blob);
   else {
     tip("No map stored. Save map to browser storage first", true, "error", 2000);
@@ -248,12 +249,10 @@ function showUploadMessage(type: string, mapData: string[] | null, mapVersion: s
 
 async function parseLoadedData(data: string[], mapVersion: string | null): Promise<void> {
   let loadGroupOpen = false;
-  const sessionThreeDOptions = options.threeD;
 
   try {
     // exit customization
     if (typeof window.closeDialogs === "function") closeDialogs();
-    if (document.getElementById("canvas3d")) await Controllers.View3d.enterStandard();
     customization = 0;
     if (ensureEl("customizationMenu").offsetParent) ensureEl("styleTab").click();
 
@@ -292,8 +291,10 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
         ensureEl<HTMLInputElement>("urbanizationInput").value = settings[13];
         urbanization = +settings[13];
       }
-      if (settings[19]) options = JSON.parse(settings[19]);
-      options.threeD = sessionThreeDOptions;
+      if (settings[19]) {
+        options = JSON.parse(settings[19]);
+        delete (options as { threeD?: unknown }).threeD;
+      }
       // settings 14, 15, 18, 25 (world configuration) are part of options now, only read for old maps
       if (settings[14]) options.mapSize = minmax(+settings[14], 1, 100);
       if (settings[15]) options.latitude = minmax(+settings[15], 0, 100);
@@ -433,7 +434,6 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
       const { migrateMap } = await import("./map-migrations");
       migrateMap(mapVersion!, data);
     }
-    options.threeD = sessionThreeDOptions;
     migrateLegacyCustomEmblemData();
     importLegacyRendererStyle(
       style,
@@ -518,10 +518,14 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
     }
     select("#scaleBar")
       .on("mousemove", () => tip("Click to open Units Editor"))
-      .on("click", () => window.Controllers.UnitsEditor.open());
+      .on("click", () => {
+        if (requireWorkspaceCapability("map:edit")) window.Controllers.UnitsEditor.open();
+      });
     select("#legend")
       .on("mousemove", () => tip("Drag to change the position. Click to hide the legend"))
-      .on("click", () => clearLegend());
+      .on("click", () => {
+        if (requireWorkspaceCapability("map:edit")) clearLegend();
+      });
 
     // add custom heightmap color scheme if any
     if (heightmapColorSchemes) {
@@ -806,7 +810,12 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
       actions: [
         { close: false, label: "Clear cache", onClick: cleanupData },
         { label: "Select file", onClick: () => ensureEl("mapToLoad").click() },
-        { label: "New map", onClick: () => ApplicationController.regenerateMap("loading error") },
+        {
+          label: "New map",
+          onClick: () => {
+            if (requireWorkspaceCapability("map:generate")) ApplicationController.regenerateMap("loading error");
+          }
+        },
         { label: "Cancel" }
       ],
       id: "mapLoadingErrorDialog",

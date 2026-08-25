@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   openBiomes: vi.fn(),
@@ -17,12 +17,16 @@ vi.mock("./ui/dialog-placement-context", () => ({
   withDomDialogPresentation: mocks.withDomDialogPresentation
 }));
 
+import { resetWorkspaceModeForTests, setWorkspaceMode } from "@/application/workspace-mode";
 import { invokeToolControllerCommand } from "./tool-command-executor";
 
+afterEach(() => resetWorkspaceModeForTests());
+
 describe("invokeToolControllerCommand", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     (globalThis as Record<string, unknown>).customization = 0;
     vi.clearAllMocks();
+    await setWorkspaceMode("edit");
   });
 
   test("invokes a controller without a legacy control click", () => {
@@ -52,5 +56,12 @@ describe("invokeToolControllerCommand", () => {
 
   test("reports unknown commands", () => {
     expect(invokeToolControllerCommand("unknown-command")).toBe("missing");
+  });
+
+  test("blocks editing controller commands in View mode before loading a controller", async () => {
+    await setWorkspaceMode("view");
+
+    expect(invokeToolControllerCommand("editBiomesButton")).toBe("blocked");
+    expect(mocks.openBiomes).not.toHaveBeenCalled();
   });
 });

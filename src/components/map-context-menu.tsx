@@ -1,6 +1,7 @@
 import { Icon } from "@patkepa/kantzen-ui/icons";
 import { Menu, MenuDivider, MenuItem, showContextMenu, type MenuItemProps } from "@patkepa/kantzen-ui/primitives";
 import { type ReactNode, useState } from "react";
+import { getWorkspaceMode } from "@/application/workspace-mode";
 import { tip } from "@/components/tooltips";
 import { Controllers } from "@/controllers";
 import type { MapContext, MapContextArea, MapContextEntity } from "./map-context";
@@ -20,7 +21,7 @@ interface ActionItemProps {
 export function showMapContextMenu(context: MapContext): void {
   showContextMenu({
     content: <MapContextMenu context={context} />,
-    popoverClassName: "fmg-map-context-menu",
+    popoverClassName: "fantasia-map-context-menu",
     targetOffset: { left: context.clientX, top: context.clientY }
   });
 }
@@ -29,6 +30,8 @@ export function MapContextMenu({ context }: { context: MapContext }): React.JSX.
   const [page, setPage] = useState<MenuPage>("main");
   const { cellId, entities, point } = context;
   const isLand = pack.cells.h[cellId] >= 20;
+  const isViewMode = getWorkspaceMode() === "view";
+  const burg = entities.find(entity => entity.kind === "burg");
   const canAddBurg = isLand && !pack.cells.burg[cellId];
   const canAddRiver = isLand && !pack.cells.b[cellId] && !pack.cells.r[cellId];
   const pageTitle = { add: "Add here", areas: "Edit map data", copy: "Copy", entities: "Edit object", main: context.title }[
@@ -36,10 +39,10 @@ export function MapContextMenu({ context }: { context: MapContext }): React.JSX.
   ];
 
   return (
-    <Menu className="fmg-map-context-menu-list" aria-label={`Map actions for ${context.title}`}>
+    <Menu className="fantasia-map-context-menu-list" aria-label={`Map actions for ${context.title}`}>
       <MenuDivider
         title={
-          <span className="fmg-map-context-menu-heading">
+          <span className="fantasia-map-context-menu-heading">
             <strong>{pageTitle}</strong>
             <span>
               {page === "main" ? "" : `${context.title} · `}Cell {cellId} · {formatPoint(point)}
@@ -52,23 +55,30 @@ export function MapContextMenu({ context }: { context: MapContext }): React.JSX.
 
       {page === "main" ? (
         <>
-          {entities.length === 1 ? (
+          {!isViewMode && entities.length === 1 ? (
             <ActionItem
               icon={getEntityIcon(entities[0])}
               onSelect={() => editEntity(entities[0])}
               text={`Edit ${entities[0].label}`}
             />
           ) : null}
-          {entities.length > 1 ? (
+          {!isViewMode && entities.length > 1 ? (
             <NavigationItem icon="select" onSelect={() => setPage("entities")} text={`Edit object (${entities.length})`} />
           ) : null}
+          {isViewMode && burg ? (
+            <ActionItem icon="home" onSelect={() => Controllers.BurgInfo.open(burg.id!)} text={`Inspect ${burg.label}`} />
+          ) : null}
           <ActionItem icon="info-sign" onSelect={() => Controllers.CellInfo.openAt(point)} text="Inspect this cell" />
-          {context.areas.length ? (
+          {!isViewMode && context.areas.length ? (
             <NavigationItem icon="layers" onSelect={() => setPage("areas")} text="Edit map data" />
           ) : null}
-          <MenuDivider />
-          <NavigationItem icon="add" onSelect={() => setPage("add")} text="Add here" />
-          <ActionItem icon="geotime" onSelect={() => Controllers.MeasurersEditor.addRulerAt(point)} text="Measure from here" />
+          {!isViewMode ? (
+            <>
+              <MenuDivider />
+              <NavigationItem icon="add" onSelect={() => setPage("add")} text="Add here" />
+              <ActionItem icon="geotime" onSelect={() => Controllers.MeasurersEditor.addRulerAt(point)} text="Measure from here" />
+            </>
+          ) : null}
           <ActionItem icon="locate" onSelect={() => zoomTo(point[0], point[1], scale, 450)} text="Center here" />
           <NavigationItem icon="clipboard" onSelect={() => setPage("copy")} text="Copy" />
         </>
@@ -151,7 +161,7 @@ function ActionItem({ disabled, icon, label, onSelect, text }: ActionItemProps):
 function NavigationItem({ icon, onSelect, text }: Omit<ActionItemProps, "disabled" | "label">): React.JSX.Element {
   return (
     <li className="kui-menu-item-shell" role="none">
-      <button className="kui-menu-item bp6-menu-item fmg-map-context-navigation" onClick={onSelect} role="menuitem" type="button">
+      <button className="kui-menu-item bp6-menu-item fantasia-map-context-navigation" onClick={onSelect} role="menuitem" type="button">
         <Icon icon={icon} />
         <span className="bp6-text-overflow-ellipsis">{text}</span>
         {icon === "arrow-left" ? null : <Icon icon="chevron-right" />}

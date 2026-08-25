@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { requireWorkspaceCapability, type WorkspaceCapability } from "@/application/workspace-mode";
 import { MapMinimap } from "./map-minimap";
 import {
   getToolCommands,
@@ -24,7 +25,7 @@ import "@patkepa/kantzen-ui/theme.css";
 import "./ui/workspace-panel.css";
 import "./workspace-sidebar.css";
 
-type ToolWorkspaceSection = "create" | "edit" | "inspect" | "regenerate";
+type ToolWorkspaceSection = "create" | "edit" | "regenerate";
 type OptionsWorkspaceSection = "world-setup" | "preferences";
 type WorkspaceSection = "style" | ToolWorkspaceSection | OptionsWorkspaceSection;
 type LegacyWorkspaceSection = WorkspaceSection | "layers" | "options" | "tools" | "about";
@@ -49,7 +50,6 @@ interface PendingRegeneration {
 const WORKSPACE_SECTIONS: Record<WorkspaceSection, WorkspaceSectionConfig> = {
   create: { route: "/create", tabId: "toolsTab", title: "Create" },
   edit: { route: "/edit", tabId: "toolsTab", title: "Edit" },
-  inspect: { route: "/inspect", tabId: "toolsTab", title: "Inspect" },
   style: { route: "/style", tabId: "styleTab", title: "Style" },
   "world-setup": { route: "/world-setup", tabId: "optionsTab", title: "World Setup" },
   regenerate: { route: "/regenerate", tabId: "toolsTab", title: "Regenerate" },
@@ -59,7 +59,6 @@ const WORKSPACE_SECTIONS: Record<WorkspaceSection, WorkspaceSectionConfig> = {
 const TOOL_GROUPS_BY_SECTION: Record<ToolWorkspaceSection, readonly ToolGroupId[]> = {
   create: ["create"],
   edit: ["world", "politics", "settlements", "geography"],
-  inspect: ["analysis"],
   regenerate: ["regenerate"]
 };
 
@@ -76,11 +75,6 @@ const TOOL_PANEL_COPY: Record<
     emptyDescription: "Try a feature such as states, routes, cultures, or markets.",
     placeholder: "Search editors",
     searchLabel: "Search editors"
-  },
-  inspect: {
-    emptyDescription: "Try cells, charts, or notes.",
-    placeholder: "Search inspection tools",
-    searchLabel: "Search inspection tools"
   },
   regenerate: {
     emptyDescription: "Try a generated feature such as states, rivers, burgs, or markets.",
@@ -137,6 +131,8 @@ function dispatchWorkspacePanelChange(section: WorkspaceSection): void {
 }
 
 function openWorkspaceSection(section: WorkspaceSection): void {
+  const requiredCapability = getWorkspaceSectionCapability(section);
+  if (requiredCapability && !requireWorkspaceCapability(requiredCapability)) return;
   setWorkspaceView(section);
 
   const options = document.getElementById("options");
@@ -145,6 +141,12 @@ function openWorkspaceSection(section: WorkspaceSection): void {
   const tab = document.getElementById(WORKSPACE_SECTIONS[section].tabId);
   if (tab?.classList.contains("active")) dispatchWorkspacePanelChange(section);
   else tab?.click();
+}
+
+function getWorkspaceSectionCapability(section: WorkspaceSection): WorkspaceCapability | undefined {
+  if (["create", "edit", "style", "preferences"].includes(section)) return "map:edit";
+  if (["world-setup", "regenerate"].includes(section)) return "map:generate";
+  return undefined;
 }
 
 window.addEventListener("new-map:open", () => openWorkspaceSection("world-setup"));
@@ -230,14 +232,14 @@ function ToolSection({
   return (
     <WorkspacePanelSection
       className={
-        [group.id === "regenerate" ? "fmg-panel-section--destructive" : "", hidden ? "fmg-panel-section--hidden" : ""]
+        [group.id === "regenerate" ? "fantasia-panel-section--destructive" : "", hidden ? "fantasia-panel-section--hidden" : ""]
           .filter(Boolean)
           .join(" ") || undefined
       }
       description={group.description}
       title={group.label}
     >
-      <div className="fmg-panel-action-list" id={containerId}>
+      <div className="fantasia-panel-action-list" id={containerId}>
         {commands.map(command => (
           <ToolButton
             command={command}
@@ -318,7 +320,7 @@ function ToolsPanel(): React.JSX.Element {
   };
 
   return (
-    <WorkspacePanel className={`fmg-tools-panel fmg-tools-panel--${section}`}>
+    <WorkspacePanel className={`fantasia-tools-panel fantasia-tools-panel--${section}`}>
       <WorkspacePanelSearch
         ariaLabel={panelCopy.searchLabel}
         inputRef={searchInput}
@@ -328,7 +330,7 @@ function ToolsPanel(): React.JSX.Element {
         value={search}
       />
       {visibleGroups.length ? (
-        <div className="fmg-tools-layout">
+        <div className="fantasia-tools-layout">
           {TOOL_GROUPS.map(group => (
             <ToolSection
               dockEditor={section === "edit"}

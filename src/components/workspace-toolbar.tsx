@@ -1,14 +1,20 @@
-import { Controllers } from "@/controllers";
-import { type ViewMode, VIEW_MODE_CHANGE_EVENT } from "@/controllers/view-mode-events";
 import { Icon, type IconName, IconSize, Icons } from "@patkepa/kantzen-ui/icons";
 import { Menu, MenuDivider, MenuItem } from "@patkepa/kantzen-ui/primitives";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  getWorkspaceMode,
+  setWorkspaceMode,
+  subscribeToWorkspaceMode,
+  type WorkspaceMode
+} from "@/application/workspace-mode";
 import {
   type LayerControlsSnapshot,
   LAYER_CONTROLS_CHANGE_EVENT,
   type LayerView,
   type LegacyLayerControls
 } from "./layers/layer-controls";
+import { CountrySelection } from "./country-details";
+import { invokeToolControllerCommand } from "./tool-command-executor";
 import { getToolCommands, TOOL_GROUPS } from "./tool-registry";
 import { executeLegacyCommand } from "./ui/legacy-command";
 import "./workspace-toolbar.css";
@@ -16,7 +22,6 @@ import "./workspace-toolbar.css";
 export type ToolbarWorkspaceSection =
   | "create"
   | "edit"
-  | "inspect"
   | "style"
   | "world-setup"
   | "regenerate"
@@ -110,12 +115,7 @@ const MAP_LAYER_MENU_GROUPS: readonly MapLayerMenuGroup[] = [
 const MAP_LAYER_GROUP_INDEX = new Map(
   MAP_LAYER_MENU_GROUPS.flatMap((group, index) => group.ids.map(id => [id, index] as const))
 );
-const VIEW_MODES: readonly { id: ViewMode; label: string; tip: string }[] = [
-  { id: "viewStandard", label: "Standard", tip: "Edit the map in the standard 2D view" },
-  { id: "viewMesh", label: "3D scene", tip: "Present the map as a 3D terrain scene" },
-  { id: "viewGlobe", label: "Globe", tip: "Project the map onto a globe" }
-];
-const TOOLBAR_ICONS: IconName[] = ["folder-open", "chart", "refresh", "plus", "edit", "eye-open", "chevron-down"];
+const TOOLBAR_ICONS: IconName[] = ["folder-open", "refresh", "plus", "edit", "eye-open", "chevron-down"];
 
 const PROJECT_ACTIONS = [
   { label: "New Map", icon: "document", targetId: "newMapButton", shortcut: "F2" },
@@ -161,13 +161,13 @@ function FloatingMenu({
   const close = () => setOpen(false);
 
   return (
-    <div className={`fmg-floating-menu fmg-floating-menu--align-${align}`} ref={root}>
+    <div className={`fantasia-floating-menu fantasia-floating-menu--align-${align}`} ref={root}>
       <button
         aria-controls={menuId}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={label}
-        className="fmg-floating-menu__trigger"
+        className="fantasia-floating-menu__trigger"
         data-href={route}
         data-tip={tip}
         id={id}
@@ -175,14 +175,14 @@ function FloatingMenu({
         ref={trigger}
         type="button"
       >
-        <span className="fmg-workspace-toolbar__icon" aria-hidden="true">
+        <span className="fantasia-workspace-toolbar__icon" aria-hidden="true">
           <Icon icon={icon} size={17} />
         </span>
-        <span className="fmg-floating-menu__label">{label}</span>
-        <Icon aria-hidden="true" className="fmg-floating-menu__chevron" icon="chevron-down" size={12} />
+        <span className="fantasia-floating-menu__label">{label}</span>
+        <Icon aria-hidden="true" className="fantasia-floating-menu__chevron" icon="chevron-down" size={12} />
       </button>
       {open ? (
-        <Menu aria-label={label} className="fmg-floating-menu__menu" id={menuId}>
+        <Menu aria-label={label} className="fantasia-floating-menu__menu" id={menuId}>
           {children(close)}
         </Menu>
       ) : null}
@@ -190,7 +190,7 @@ function FloatingMenu({
   );
 }
 
-function ProjectMenu({ onOpenSection }: Pick<WorkspaceToolbarProps, "onOpenSection">): React.JSX.Element {
+function ProjectMenu({ mode, onOpenSection }: Pick<WorkspaceToolbarProps, "onOpenSection"> & { mode: WorkspaceMode }): React.JSX.Element {
   return (
     <FloatingMenu
       icon="folder-open"
@@ -200,27 +200,35 @@ function ProjectMenu({ onOpenSection }: Pick<WorkspaceToolbarProps, "onOpenSecti
     >
       {close => (
         <>
-          {PROJECT_ACTIONS.map(action => (
+          {PROJECT_ACTIONS.filter(action => mode === "edit" || action.targetId !== "newMapButton").map(action => (
             <MenuItem
               icon={action.icon}
               key={action.targetId}
               labelElement={action.shortcut ? <kbd>{action.shortcut}</kbd> : undefined}
               onClick={() => {
                 close();
-                executeLegacyCommand(action.targetId);
+                executeLegacyCommand(
+                  action.targetId,
+                  document,
+                  action.targetId === "newMapButton" ? "map:generate" : undefined
+                );
               }}
               text={action.label}
             />
           ))}
-          <MenuDivider />
-          <MenuItem
-            icon="settings"
-            onClick={() => {
-              close();
-              onOpenSection("preferences");
-            }}
-            text="Preferences"
-          />
+          {mode === "edit" ? (
+            <>
+              <MenuDivider />
+              <MenuItem
+                icon="settings"
+                onClick={() => {
+                  close();
+                  onOpenSection("preferences");
+                }}
+                text="Preferences"
+              />
+            </>
+          ) : null}
         </>
       )}
     </FloatingMenu>
@@ -235,23 +243,23 @@ function ToolMenu({
   route,
   tip
 }: Pick<FloatingMenuProps, "icon" | "id" | "label" | "route" | "tip"> & {
-  groupId: "analysis" | "create";
+  groupId: "create";
 }): React.JSX.Element {
   return (
     <FloatingMenu icon={icon} id={id} label={label} route={route} tip={tip}>
       {close =>
         getToolCommands(groupId).map(command => (
-          <MenuItem
-            icon={command.icon}
-            key={command.id}
-            labelElement={command.shortcut ? <kbd>{command.shortcut.replace("Shift + ", "⇧")}</kbd> : undefined}
-            onClick={() => {
-              close();
-              command.invoke();
-            }}
-            text={command.label}
-          />
-        ))
+            <MenuItem
+              icon={command.icon}
+              key={command.id}
+              labelElement={command.shortcut ? <kbd>{command.shortcut.replace("Shift + ", "⇧")}</kbd> : undefined}
+              onClick={() => {
+                close();
+                command.invoke();
+              }}
+              text={command.label}
+            />
+          ))
       }
     </FloatingMenu>
   );
@@ -270,12 +278,6 @@ function useLayerMenu({ initialMapSnapshot, mapControls }: LayerMenuProps): Laye
   }, []);
 
   return { controls, snapshot };
-}
-
-function getCurrentViewMode(): ViewMode {
-  if (typeof document === "undefined") return "viewStandard";
-  const mode = document.getElementById("canvas3d")?.dataset.type;
-  return mode === "viewMesh" || mode === "viewGlobe" ? mode : "viewStandard";
 }
 
 export function EditMenuItems({ close }: { close: () => void }): React.JSX.Element {
@@ -362,16 +364,10 @@ function EditMenu(): React.JSX.Element {
 export function ViewsMenuItems({
   close,
   controls,
-  onChangeViewMode,
+  mode,
   onOpenSection,
-  snapshot,
-  viewMode
-}: Pick<WorkspaceToolbarProps, "onOpenSection"> &
-  LayerMenuState & {
-    close: () => void;
-    onChangeViewMode: (mode: ViewMode) => void;
-    viewMode: ViewMode;
-  }): React.JSX.Element {
+  snapshot
+}: Pick<WorkspaceToolbarProps, "onOpenSection"> & LayerMenuState & { close: () => void; mode: WorkspaceMode }): React.JSX.Element {
   const presetOptions = snapshot.presetOptions.filter(
     option => !option.hidden || option.value === snapshot.selectedPreset
   );
@@ -397,66 +393,49 @@ export function ViewsMenuItems({
       </MenuItem>
       <MenuDivider title="Show on map" />
       <LayerMenuItems controls={controls} snapshot={snapshot} />
-      <MenuDivider />
+      <MenuDivider title="Explore" />
       <MenuItem
-        icon="style"
+        icon="chart"
         onClick={() => {
           close();
-          onOpenSection("style");
+          invokeToolControllerCommand("overviewChartsButton", undefined, undefined, "map:inspect");
         }}
-        text="Style"
+        text="Charts"
       />
-      <MenuDivider title="View mode" />
-      {VIEW_MODES.map(option => (
-        <MenuItem
-          active={option.id === viewMode}
-          data-tip={option.tip}
-          icon={option.id === viewMode ? "tick" : "blank"}
-          key={option.id}
-          onClick={() => {
-            close();
-            onChangeViewMode(option.id);
-          }}
-          text={option.label}
-        />
-      ))}
+      {mode === "edit" ? (
+        <>
+          <MenuDivider />
+          <MenuItem
+            icon="style"
+            onClick={() => {
+              close();
+              onOpenSection("style");
+            }}
+            text="Style"
+          />
+        </>
+      ) : null}
     </>
   );
 }
 
-function ViewsMenu(props: Pick<WorkspaceToolbarProps, "onOpenSection"> & LayerMenuState): React.JSX.Element {
-  const [viewMode, setViewMode] = useState(getCurrentViewMode);
-
-  useEffect(() => {
-    const handleViewModeChange = (event: Event) => setViewMode((event as CustomEvent<ViewMode>).detail);
-    window.addEventListener(VIEW_MODE_CHANGE_EVENT, handleViewModeChange);
-    return () => window.removeEventListener(VIEW_MODE_CHANGE_EVENT, handleViewModeChange);
-  }, []);
-
-  const changeViewMode = (mode: ViewMode) => {
-    setViewMode(mode);
-    if (mode === "viewStandard") void Controllers.View3d.enterStandard();
-    else void Controllers.View3d.open(mode);
-  };
-
+function ViewsMenu(props: Pick<WorkspaceToolbarProps, "onOpenSection"> & LayerMenuState & { mode: WorkspaceMode }): React.JSX.Element {
   return (
     <FloatingMenu
       align="right"
       icon="eye-open"
       id="workspaceViewsTrigger"
       label="Views"
-      tip="Map presets, visible layers, view modes, and style"
+      tip="Map presets, visible layers, and style"
     >
-      {close => (
-        <ViewsMenuItems {...props} close={close} onChangeViewMode={changeViewMode} viewMode={viewMode} />
-      )}
+      {close => <ViewsMenuItems {...props} close={close} />}
     </FloatingMenu>
   );
 }
 
 function getCurrentMapName(fallback?: string): string {
-  if (typeof document === "undefined") return fallback?.trim() || "Untitled map";
-  return document.querySelector<HTMLInputElement>("#mapName")?.value.trim() || fallback?.trim() || "Untitled map";
+  if (typeof document === "undefined") return fallback?.trim() || "Fantasia";
+  return document.querySelector<HTMLInputElement>("#mapName")?.value.trim() || fallback?.trim() || "Fantasia";
 }
 
 function MapIdentity({ initialMapName }: Pick<WorkspaceToolbarProps, "initialMapName">): React.JSX.Element {
@@ -479,11 +458,11 @@ function MapIdentity({ initialMapName }: Pick<WorkspaceToolbarProps, "initialMap
   }, [initialMapName]);
 
   return (
-    <div aria-label={`Current map: ${mapName}`} className="fmg-fantasia" data-tip="Current map name">
-      <span className="fmg-fantasia__mark" aria-hidden="true">
+    <div aria-label={`Current map: ${mapName}`} className="fantasia-brand" data-tip="Current map name">
+      <span className="fantasia-brand__mark" aria-hidden="true">
         {mapName.charAt(0).toLocaleUpperCase() || "M"}
       </span>
-      <span className="fmg-fantasia__label">{mapName}</span>
+      <span className="fantasia-brand__label">{mapName}</span>
     </div>
   );
 }
@@ -503,7 +482,7 @@ function GenerateMenu({ onOpenSection }: Pick<WorkspaceToolbarProps, "onOpenSect
             icon="document"
             onClick={() => {
               close();
-              executeLegacyCommand("newMapButton");
+              executeLegacyCommand("newMapButton", document, "map:generate");
             }}
             text="New Map"
           />
@@ -530,8 +509,35 @@ function GenerateMenu({ onOpenSection }: Pick<WorkspaceToolbarProps, "onOpenSect
   );
 }
 
+function WorkspaceModeSwitch({ mode }: { mode: WorkspaceMode }): React.JSX.Element {
+  return (
+    <div aria-label="Workspace mode" className="fantasia-workspace-mode" role="group">
+      <span aria-live="polite" className="fantasia-workspace-mode__status" role="status">
+        Workspace is in {mode === "view" ? "View" : "Edit"} mode
+      </span>
+      <button
+        aria-pressed={mode === "view"}
+        className={mode === "view" ? "fantasia-workspace-mode__button fantasia-workspace-mode__button--active" : "fantasia-workspace-mode__button"}
+        onClick={() => void setWorkspaceMode("view")}
+        type="button"
+      >
+        View
+      </button>
+      <button
+        aria-pressed={mode === "edit"}
+        className={mode === "edit" ? "fantasia-workspace-mode__button fantasia-workspace-mode__button--active" : "fantasia-workspace-mode__button"}
+        onClick={() => void setWorkspaceMode("edit")}
+        type="button"
+      >
+        Edit
+      </button>
+    </div>
+  );
+}
+
 export function WorkspaceToolbar(props: WorkspaceToolbarProps): React.JSX.Element {
   const [, setIconsLoaded] = useState(false);
+  const [mode, setMode] = useState(getWorkspaceMode);
   const layerMenu = useLayerMenu(props);
 
   useEffect(() => {
@@ -544,32 +550,32 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps): React.JSX.Elemen
     };
   }, []);
 
+  useEffect(() => subscribeToWorkspaceMode(setMode), []);
+
   return (
-    <nav aria-label="Map workspace" className="fmg-workspace-toolbar">
-      <div className="fmg-workspace-toolbar__group">
-        <MapIdentity initialMapName={props.initialMapName} />
-        <ProjectMenu onOpenSection={props.onOpenSection} />
-        <ToolMenu
-          groupId="analysis"
-          icon="chart"
-          id="workspaceInspectTrigger"
-          label="Inspect"
-          route="/inspect"
-          tip="Inspect map data"
-        />
-        <GenerateMenu onOpenSection={props.onOpenSection} />
-        <ToolMenu
-          groupId="create"
-          icon="plus"
-          id="workspaceCreateTrigger"
-          label="Create"
-          route="/create"
-          tip="Create map features"
-        />
+    <nav aria-label="Map workspace" className="fantasia-workspace-toolbar">
+      <div className="fantasia-workspace-toolbar__group">
+        <div className="fantasia-workspace-toolbar__identity">
+          <MapIdentity initialMapName={props.initialMapName} />
+          <CountrySelection />
+        </div>
+        <ProjectMenu mode={mode} onOpenSection={props.onOpenSection} />
+        {mode === "edit" ? <GenerateMenu onOpenSection={props.onOpenSection} /> : null}
+        {mode === "edit" ? (
+          <ToolMenu
+            groupId="create"
+            icon="plus"
+            id="workspaceCreateTrigger"
+            label="Create"
+            route="/create"
+            tip="Create map features"
+          />
+        ) : null}
       </div>
-      <div className="fmg-workspace-toolbar__group fmg-workspace-toolbar__group--right">
-        <EditMenu />
-        <ViewsMenu {...layerMenu} onOpenSection={props.onOpenSection} />
+      <div className="fantasia-workspace-toolbar__group fantasia-workspace-toolbar__group--right">
+        <WorkspaceModeSwitch mode={mode} />
+        {mode === "edit" ? <EditMenu /> : null}
+        <ViewsMenu {...layerMenu} mode={mode} onOpenSection={props.onOpenSection} />
       </div>
     </nav>
   );

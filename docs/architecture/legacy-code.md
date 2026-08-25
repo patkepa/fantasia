@@ -1,7 +1,7 @@
 # Legacy Code and Compatibility Policy
 
 In this repository, **legacy** does not mean "unused". It describes several different
-parts of the gradual FMG 2.0 migration, and each part has a different removal policy.
+parts of the gradual Fantasia 2.0 migration, and each part has a different removal policy.
 Deleting code merely because it is marked legacy can break the running application,
 the public browser API, or users' saved `.map` files.
 
@@ -82,6 +82,14 @@ for classic or explicitly supported external callers, not a substitute for a mod
 Layering can create temporary exceptions: for example, a generator must not import a renderer
 or UI module merely to avoid a global call.
 
+### Workspace mode compatibility boundary
+
+`src/application/workspace-mode.ts` is intentionally **not** exposed as a new `window.*` API. Bundled UI adapters
+use its capability checks before invoking legacy controls: the tool executor, legacy-command adapter, hotkeys,
+options runtime, layer controls, and map input all enforce the same View/Edit policy. Existing classic controls stay
+available in Edit mode while they are incrementally migrated; any newly discovered classic mutation entry point must
+call `requireWorkspaceCapability` before opening its workflow or committing its mutation.
+
 ### When a bridge can be deleted
 
 Remove a global bridge only when all of the following are true:
@@ -153,12 +161,12 @@ requires a compatible parser/migration or a new format version.
 Searches for `legacy`, `deprecated`, or `obsolete` often match minified libraries such as
 TinyMCE, Three.js, or Dropbox. These messages describe the third-party package's own aliases
 and migration paths. Editing generated/minified vendor files to remove individual warnings
-creates an unmaintainable fork and does not modernize FMG.
+creates an unmaintainable fork and does not modernize Fantasia.
 
 Instead:
 
-1. Identify whether FMG calls the deprecated vendor API.
-2. Migrate the FMG caller if necessary.
+1. Identify whether Fantasia calls the deprecated vendor API.
+2. Migrate the Fantasia caller if necessary.
 3. Upgrade or replace the dependency as a reviewed unit.
 4. Remove the vendored file only when no supported feature loads it.
 

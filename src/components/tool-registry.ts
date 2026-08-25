@@ -1,4 +1,5 @@
 import type { IconName } from "@patkepa/kantzen-ui/icons";
+import type { WorkspaceCapability } from "@/application/workspace-mode";
 import {
   invokeToolControllerCommand,
   type ToolCommandResult,
@@ -8,7 +9,7 @@ import type { DomDialogPresentation } from "./ui/dialog-placement-context";
 import type { WorkspaceDialogPlacement } from "./ui/dialog-position";
 import { dispatchRegenerationCommand, type RegenerationCommandTarget } from "./ui/regeneration-command";
 
-export type ToolGroupId = "world" | "politics" | "settlements" | "geography" | "analysis" | "create" | "regenerate";
+export type ToolGroupId = "world" | "politics" | "settlements" | "geography" | "create" | "regenerate";
 
 export interface ToolGroup {
   description: string;
@@ -32,6 +33,7 @@ export interface ToolSecondaryAction {
   id: string;
   invoke: () => ToolCommandResult;
   label: string;
+  requiredCapability: WorkspaceCapability;
 }
 
 export interface ToolCommand {
@@ -43,6 +45,7 @@ export interface ToolCommand {
   id: string;
   invoke: (context?: ToolCommandContext) => ToolCommandResult | boolean;
   label: string;
+  requiredCapability: WorkspaceCapability;
   searchTerms: readonly string[];
   secondaryAction?: ToolSecondaryAction;
   shortcut?: string;
@@ -52,8 +55,7 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
   { id: "world", label: "World", icon: "globe-network", description: "Terrain, climate, biomes, and map units" },
   { id: "politics", label: "Politics", icon: "people", description: "States, cultures, faiths, and diplomacy" },
   { id: "settlements", label: "Settlements", icon: "home", description: "Burgs, markets, trade, and goods" },
-  { id: "geography", label: "Geography", icon: "map", description: "Rivers, routes, labels, and map features" },
-  { id: "analysis", label: "Analysis", icon: "chart", description: "Inspect and compare map data" },
+  { id: "geography", label: "Geography", icon: "map", description: "Rivers, routes, labels, notes, and map features" },
   { id: "create", label: "Create", icon: "plus", description: "Place features or derive a new map" },
   { id: "regenerate", label: "Regenerate", icon: "refresh", description: "Rebuild generated map data" }
 ] as const;
@@ -66,6 +68,7 @@ interface ControllerCommandOptions {
   group: Exclude<ToolGroupId, "regenerate">;
   id: string;
   label: string;
+  requiredCapability?: WorkspaceCapability;
   searchTerms?: readonly string[];
   shortcut?: string;
 }
@@ -80,13 +83,20 @@ interface RegenerationCommandOptions {
 }
 
 function controllerCommand(options: ControllerCommandOptions): ToolCommand {
+  const requiredCapability = options.requiredCapability ?? "map:edit";
   return {
     ...options,
     icon: GROUPS_BY_ID[options.group].icon,
+    requiredCapability,
     invoke: context =>
       context?.dialogPlacement || context?.dialogPresentation
-        ? invokeToolControllerCommand(options.controlId, context.dialogPlacement, context.dialogPresentation)
-        : invokeToolControllerCommand(options.controlId),
+        ? invokeToolControllerCommand(
+            options.controlId,
+            context.dialogPlacement,
+            context.dialogPresentation,
+            requiredCapability
+          )
+        : invokeToolControllerCommand(options.controlId, undefined, undefined, requiredCapability),
     searchTerms: options.searchTerms ?? []
   };
 }
@@ -97,6 +107,7 @@ function regenerationCommand(options: RegenerationCommandOptions): ToolCommand {
     destructive: true,
     group: "regenerate",
     icon: GROUPS_BY_ID.regenerate.icon,
+    requiredCapability: "map:generate",
     invoke: context =>
       dispatchRegenerationCommand(
         options.controlId,
@@ -112,8 +123,9 @@ const MARKER_SETTINGS_ACTION: ToolSecondaryAction = {
   controlId: "configRegenerateMarkers",
   icon: "settings",
   id: "regenerate.markers.settings",
-  invoke: () => invokeToolControllerCommand("configRegenerateMarkers"),
-  label: "Settings"
+  invoke: () => invokeToolControllerCommand("configRegenerateMarkers", undefined, undefined, "map:generate"),
+  label: "Settings",
+  requiredCapability: "map:generate"
 };
 
 export const TOOL_COMMANDS: readonly ToolCommand[] = [
@@ -313,29 +325,11 @@ export const TOOL_COMMANDS: readonly ToolCommand[] = [
     searchTerms: ["ruler", "distance", "area"]
   }),
   controllerCommand({
-    id: "analysis.cells",
-    controlId: "overviewCellsButton",
-    label: "Cell Details",
-    description: "Inspect data for an individual map cell",
-    group: "analysis",
-    shortcut: "Shift + E",
-    searchTerms: ["inspect", "details", "data"]
-  }),
-  controllerCommand({
-    id: "analysis.charts",
-    controlId: "overviewChartsButton",
-    label: "Charts",
-    description: "Explore map data in charts",
-    group: "analysis",
-    shortcut: "Shift + A",
-    searchTerms: ["statistics", "graphs", "data"]
-  }),
-  controllerCommand({
-    id: "analysis.notes",
+    id: "geography.notes",
     controlId: "editNotesButton",
     label: "Notes",
     description: "Review and edit feature notes",
-    group: "analysis",
+    group: "geography",
     shortcut: "Shift + O",
     searchTerms: ["annotations", "text", "information"]
   }),

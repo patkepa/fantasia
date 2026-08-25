@@ -1,13 +1,12 @@
+import Alea from "alea";
 import { drag, easeSinInOut, hsl, interpolateRound, lab, max, mean, quadtree, range, select } from "d3";
 import { ApplicationController } from "@/application/application-controller";
 import { closeDialogs, confirmationDialog, destroyDialog, refreshEditors } from "@/components/dialog/dialog-helpers";
 import { enableVerticalSortable } from "@/components/dialog/vertical-sortable";
 import { LayerControls } from "@/components/layers/layer-controls";
-import { OptionsController } from "@/components/options/options-controller";
 import { clearMainTip, showMainTip, tip } from "@/components/tooltips";
 import { showDomDialog } from "@/components/ui/dom-dialog";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
-import { Controllers } from "@/controllers";
 import { getCultureGenerationSettings } from "@/controllers/culture-generation-settings";
 import { commitHeightValues } from "@/controllers/editor-mutations";
 import { HeightmapHistory } from "@/controllers/heightmap-history";
@@ -312,7 +311,6 @@ function addToolbarListeners(): void {
   ensureEl("applyTemplate").addEventListener("click", openTemplateEditor);
   ensureEl("convertImage").addEventListener("click", openImageConverter);
   ensureEl("heightmapPreview").addEventListener("click", toggleHeightmapPreview);
-  ensureEl("heightmap3DView").addEventListener("click", OptionsController.changeViewMode);
   ensureEl("finalizeHeightmap").addEventListener("click", finalizeHeightmap);
   ensureEl("renderOcean").addEventListener("click", mockHeightmap);
 }
@@ -494,7 +492,6 @@ function finalizeHeightmap(): void {
   resetZoom();
 
   document.getElementById("preview")?.remove();
-  if (document.getElementById("canvas3d")) void Controllers.View3d.enterStandard();
 
   const mode = ensureEl("heightmapEditMode").innerHTML;
   if (mode === "erase") regenerateErasedData();
@@ -941,7 +938,6 @@ function updateHistory(noStat?: string): void {
   if (!noStat) {
     updateStatistics();
     if (document.getElementById("preview")) drawHeightmapPreview();
-    if (document.getElementById("canvas3d")) Controllers.View3d.redraw();
   }
 }
 
@@ -955,7 +951,6 @@ function restoreHistory(step: number): void {
   updateStatistics();
 
   if (document.getElementById("preview")) drawHeightmapPreview();
-  if (document.getElementById("canvas3d")) Controllers.View3d.redraw();
 }
 
 // restart edits from 1st step
@@ -964,7 +959,6 @@ function restartHistory(): void {
   setHistoryButtonsDisabled(!history.canUndo, !history.canRedo);
   updateStatistics();
   if (document.getElementById("preview")) drawHeightmapPreview();
-  if (document.getElementById("canvas3d")) Controllers.View3d.redraw();
 }
 
 function openBrushesPanel(): void {
@@ -1706,7 +1700,7 @@ function executeTemplate(): void {
   if (!steps.length) return;
 
   const currentSeed = ensureEl<HTMLInputElement>("templateSeed").value;
-  Math.random = aleaPRNG(currentSeed || generateSeed());
+  Math.random = Alea(currentSeed || generateSeed());
 
   grid.cells.h = new Uint8Array(grid.points.length);
   HeightmapGenerator.setGraph(grid);
@@ -1741,7 +1735,6 @@ function executeTemplate(): void {
   updateStatistics();
   mockHeightmap();
   if (document.getElementById("preview")) drawHeightmapPreview();
-  if (document.getElementById("canvas3d")) Controllers.View3d.redraw();
 }
 
 function downloadTemplate(): void {
@@ -1844,10 +1837,10 @@ function loadImage(this: HTMLInputElement): void {
   img.style.display = "none";
   document.body.appendChild(img);
 
-  img.onload = () => {
+  img.onload = async () => {
     const ctx = ensureEl<HTMLCanvasElement>("canvas").getContext("2d")!;
     ctx.drawImage(img, 0, 0, graphWidth, graphHeight);
-    heightsFromImage(+ensureEl<HTMLInputElement>("convertColors").value);
+    await heightsFromImage(+ensureEl<HTMLInputElement>("convertColors").value);
     resetZoom();
   };
 
@@ -1857,7 +1850,8 @@ function loadImage(this: HTMLInputElement): void {
   reader.readAsDataURL(file);
 }
 
-function heightsFromImage(count: number): void {
+async function heightsFromImage(count: number): Promise<void> {
+  await loadRgbQuant();
   const sourceImage = ensureEl<HTMLCanvasElement>("canvas");
   const sampleCanvas = document.createElement("canvas");
   sampleCanvas.width = grid.cellsX;
@@ -1898,6 +1892,26 @@ function heightsFromImage(count: number): void {
     .on("click", colorClicked);
 
   ensureEl("colorsUnassignedNumber").innerHTML = String(colors.length);
+}
+
+function loadRgbQuant(): Promise<void> {
+  if (window.RgbQuant) return Promise.resolve();
+  const existing = document.querySelector<HTMLScriptElement>('script[data-runtime-library="rgbquant"]');
+  if (existing) {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Unable to load image quantizer")), { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.dataset.runtimeLibrary = "rgbquant";
+    script.src = "libs/rgbquant.min.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Unable to load image quantizer"));
+    document.head.appendChild(script);
+  });
 }
 
 function mapClicked(this: SVGElement): void {
@@ -1967,7 +1981,7 @@ function autoAssing(type: string): void {
   const colorsUnassignedContainer = ensureEl("colorsUnassignedContainer");
   let unassigned = colorsUnassignedContainer.querySelectorAll<HTMLElement>("div");
   if (!unassigned.length) {
-    heightsFromImage(+ensureEl<HTMLInputElement>("convertColors").value);
+    void heightsFromImage(+ensureEl<HTMLInputElement>("convertColors").value);
     unassigned = colorsUnassignedContainer.querySelectorAll<HTMLElement>("div");
     if (!unassigned.length) {
       tip("No unassigned colors. Please load an image and click the button again", false, "error");
@@ -2038,7 +2052,7 @@ function setConvertColorsNumber(): void {
     { default: +ensureEl<HTMLInputElement>("convertColors").value, step: 1, min: 3, max: 255 },
     number => {
       ensureEl<HTMLInputElement>("convertColors").value = String(number);
-      heightsFromImage(+number);
+      void heightsFromImage(+number);
     }
   );
 }

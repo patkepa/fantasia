@@ -1,4 +1,6 @@
-export const RUN_REGENERATION_EVENT = "fmg-run-regeneration";
+import { requireWorkspaceCapability } from "@/application/workspace-mode";
+
+export const RUN_REGENERATION_EVENT = "fantasia-run-regeneration";
 
 export interface RegenerationCommandDetail {
   buttonId: string;
@@ -15,6 +17,7 @@ export function dispatchRegenerationCommand(
   modifiers: Pick<MouseEvent, "ctrlKey" | "metaKey">,
   target: RegenerationCommandTarget = window
 ): boolean {
+  if (!requireWorkspaceCapability("map:generate")) return false;
   return target.dispatchEvent(
     new CustomEvent<RegenerationCommandDetail>(RUN_REGENERATION_EVENT, {
       detail: { buttonId, ctrlKey: modifiers.ctrlKey, metaKey: modifiers.metaKey }

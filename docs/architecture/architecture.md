@@ -1,8 +1,8 @@
-This document outlines the future architecture of the Fantasy Map Generator. It is intended to guide the development of a new, more consistent and maintainable codebase. The current architecture is a mix of different patterns and styles, which makes it difficult to understand and maintain. The future architecture will be based on clear separation of concerns, modularity and type safety.
+This document outlines the future architecture of Fantasia. It is intended to guide the development of a new, more consistent and maintainable codebase. The current architecture is a mix of different patterns and styles, which makes it difficult to understand and maintain. The future architecture will be based on clear separation of concerns, modularity and type safety.
 
 ## Goals
 
-The proposed FMG 2.0 architecture aims to gradually transform the project from a large, tightly-coupled vanilla JavaScript application into a modular, maintainable, and testable system.
+The proposed Fantasia 2.0 architecture aims to gradually transform the project from a large, tightly-coupled vanilla JavaScript application into a modular, maintainable, and testable system.
 
 Main goals:
 
@@ -191,7 +191,6 @@ The same world state could theoretically support:
 
 - SVG renderer
 - WebGL renderer
-- 3D renderer
 - External engine export
 - Server-side rendering
 
@@ -318,6 +317,12 @@ retain their appearance throughout the conversion.
 The four-layer model above (state → generators → editors → renderers) is the _conceptual_
 core, but a real application also needs code that is none of those: persistence,
 app-shell lifecycle, static content, and shared helpers.
+
+At the repository root, keep only conventional entry points: package metadata, licensing and
+contribution documents, the primary Vite/Vitest/Playwright/TypeScript configuration, and the
+container definition. Put assets used only by documentation in `docs/assets/`; put an explicit
+test or benchmark configuration next to its suite under `tests/`; and put an explicit
+non-default build configuration under `config/`.
 
 | Folder             | Layer       | Holds                                                |
 | ------------------ | ----------- | ---------------------------------------------------- |

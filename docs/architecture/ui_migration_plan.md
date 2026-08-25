@@ -8,7 +8,7 @@ consistent Kantzen UI workspace without coupling React components to map generat
 Shared visual, accessibility, and interaction rules are documented in `docs/architecture/ui_conventions.md`.
 
 The migration is intentionally incremental. Existing controllers and renderers remain authoritative until their
-responsibilities are migrated separately under the FMG 2.0 architecture.
+responsibilities are migrated separately under the Fantasia 2.0 architecture.
 
 ## Current State
 
@@ -384,10 +384,10 @@ Completed:
 - [x] Add drag handles and keyboard-accessible move controls without changing SVG renderer ownership.
 - [x] Migrate preset selection, custom preset saving, and preset removal into the workspace panel.
 - [x] Use the shared modal dialog, text/select fields, inline notice, search, section, and empty-state compositions.
-- [x] Preserve Standard, 3D scene, and Globe view controls through the existing lazy View3d controller.
+- [x] Keep the Views menu focused on 2D presets, layers, and style controls.
 
 Remaining:
 
-- [ ] Verify toggles, presets, reordering, filtering, view modes, and responsive layout in a rendered browser session.
+- [ ] Verify toggles, presets, reordering, filtering, and responsive layout in a rendered browser session.
 - [ ] Replace the legacy layer seed markup with typed definitions after runtime parity is proven.
 - [x] Remove the jQuery Sortable fallback when no supported workflow uses the legacy list.

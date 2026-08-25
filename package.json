@@ -1,26 +1,26 @@
 {
-  "name": "fantasy-map-generator",
+  "name": "fantasia",
   "version": "1.143.3",
-  "description": "Azgaar's _Fantasy Map Generator_ is a free web application that helps fantasy writers, game masters, and cartographers create and edit fantasy maps.",
-  "homepage": "https://github.com/Azgaar/Fantasy-Map-Generator#readme",
+  "description": "Fantasia is a free web application for fantasy writers, game masters, and cartographers to create and edit fantasy maps. It is a fork of Azgaar's Fantasy Map Generator.",
+  "homepage": "https://github.com/patkepa/fantasia#readme",
   "bugs": {
-    "url": "https://github.com/Azgaar/Fantasy-Map-Generator/issues"
+    "url": "https://github.com/patkepa/fantasia/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Azgaar/Fantasy-Map-Generator.git"
+    "url": "git+https://github.com/patkepa/fantasia.git"
   },
   "license": "MIT",
   "author": "Azgaar",
-  "main": "main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && node scripts/check-bundle-size.mts",
-    "build:viewer": "tsc && vite build --config vite.viewer.config.ts",
-    "benchmark:renderer": "playwright test --config=playwright.benchmark.config.ts",
+    "build:viewer": "tsc && vite build --config config/vite.viewer.config.ts",
+    "benchmark:renderer": "playwright test --config=tests/benchmarks/playwright.config.ts",
     "preview": "vite preview",
     "test": "vitest",
     "test:e2e": "playwright test",
+    "test:exploratory": "playwright test --config=tests/exploratory/playwright.config.ts",
     "lint": "biome check --write",
     "prepare": "simple-git-hooks"
   },
@@ -37,7 +37,6 @@
     "@types/polylabel": "^1.1.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "@types/three": "^0.184.1",
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.0.18",
     "playwright": "^1.57.0",
@@ -55,8 +54,7 @@
     "pixi.js": "^8.19.0",
     "polylabel": "^2.0.1",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "three": "^0.184.0"
+    "react-dom": "^19.2.8"
   },
   "engines": {
     "node": ">=24.0.0"

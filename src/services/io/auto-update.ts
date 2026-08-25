@@ -2,7 +2,6 @@
 import { color, min, select } from "d3";
 import { CUSTOM_STYLE_PRESET_PREFIX } from "@/components/style/style-preset-constants";
 import { RELIEF_SETS } from "@/data/relief-icons";
-import { defaultOptions } from "@/data/view-3d-options";
 import type { Label, LabelNameMode } from "@/generators/labels-generator";
 import { ensureMeasurerIds, type Measurer, type MeasurerType } from "@/generators/measurers-generator";
 import { ensureReliefIconIds } from "@/generators/relief-generator";
@@ -1212,11 +1211,6 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
     if (pack.goods?.length && !pack.goods.some(good => good.visible)) pack.goods[0].visible = true;
   }
 
-  if (isOlderThan("1.132.0")) {
-    // v1.132.0 added global 3D view options
-    options.threeD = { ...defaultOptions };
-  }
-
   if (isOlderThan("1.138.0")) {
     // v1.138.0 migrated measurers from the global rulers string (data[33]) to pack.measurers
     const MEASURER_TYPES = ["Ruler", "Opisometer", "RouteOpisometer", "Planimeter"];
@@ -1394,15 +1388,6 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
     } else {
       options.labels.groups.push({ ...Labels.getFallbackGroup("state"), mode: stateMode });
       style.labels.groups.state = getGroupStyle({ name: "state", type: "state" });
-    }
-
-    for (const textEl of document.querySelectorAll<SVGTextElement>("#labels #states > text")) {
-      const stateId = +textEl.id.slice(10);
-      const state = pack.states[stateId];
-      if (!state) continue;
-
-      const pathEl = document.getElementById(`textPath_${textEl.id}`) as SVGPathElement | null;
-      if (pathEl) state.label = getPathLabel({ textEl, pathEl, names: [state.name, state.fullName] });
     }
 
     delete (style as any).burgLabels; // migrated to style.labels.groups

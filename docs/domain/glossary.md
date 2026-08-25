@@ -1,6 +1,6 @@
-# Fantasy Map Generator: Glossary
+# Fantasia: Glossary
 
-This glossary covers core terminology, data structures, and concepts used throughout the Fantasy Map Generator project. It is intended as a reference for contributors, users, and developers. This glossary is a living document, update it as new features and terminology are added to the project.
+This glossary covers core terminology, data structures, and concepts used throughout Fantasia. It is intended as a reference for contributors, users, and developers. This glossary is a living document; update it as new features and terminology are added to the project.
 
 ## General Concepts
 
@@ -53,7 +53,8 @@ This glossary covers core terminology, data structures, and concepts used throug
 - **Emblem**: A heraldic shield or flag representing a State, Province, or Burg.
 - **Note**: User-defined text attached to a specific map entity (cell, burg, state) containing custom lore or description.
 - **Icon**: A small graphic representing a good, biome, or feature.
-- **Label**: Display text owned by a map entity — a State, Province, Burg, River, Route, or Added Label. Every label is anchored at its entity's position and drawn as positioned text there, unless it has path points — then the text is curved along them. Any label can be switched between the two in the Label Editor.
+- **Label**: Display text owned by a Province, Burg, River, Route, or Added Label. Every editable label is anchored at its entity's position and drawn as positioned text there, unless it has path points — then the text is curved along them. Any label can be switched between the two in the Label Editor.
+- **State Label**: Automatically generated country name drawn from a State's current name and territory. It is map text, not an editable map object.
 - **Added Label**: A free-standing map entity created by the user, whose only purpose is to carry a Label. It supplies the position that other label owners get from their own geometry.
 - **Label Group**: An ordered, reusable label policy and visual style. Policy fields live in `options.labels.groups`; typography and offsets live in `style.labels.groups`. Any label type can use any Label Group without changing how that entity is rendered.
 - **Label Group type**: The Label Group's organizational category (`states`, `burgs`, `provinces`, or `added`). It controls defaults and UI grouping, not rendering compatibility.

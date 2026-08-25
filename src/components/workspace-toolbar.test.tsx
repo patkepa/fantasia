@@ -2,7 +2,8 @@
 
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { resetWorkspaceModeForTests, setWorkspaceMode } from "@/application/workspace-mode";
 import type { LayerControlsSnapshot, LegacyLayerControls } from "./layers/layer-controls";
 import { getToolCommands } from "./tool-registry";
 import { EditMenuItems, LayerMenuItems, ViewsMenuItems, WorkspaceToolbar } from "./workspace-toolbar";
@@ -38,17 +39,20 @@ const controls: LegacyLayerControls = {
   toggleLayer: vi.fn(() => true)
 };
 
+afterEach(() => resetWorkspaceModeForTests());
+
 describe("WorkspaceToolbar", () => {
   test("stays above modal overlays", () => {
     const toolbarZIndex = Number(workspaceToolbarStyles.match(/#mapPreviewRoot\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
     const overlayZIndices = [dialogStyles, workspacePanelStyles].map(styles =>
-      Number(styles.match(/(?:\.fmg-dialog-overlay|\.kui-overlay)\s*\{[^}]*z-index:\s*(\d+)/s)?.[1])
+      Number(styles.match(/(?:\.fantasia-dialog-overlay|\.kui-overlay)\s*\{[^}]*z-index:\s*(\d+)/s)?.[1])
     );
 
     expect(toolbarZIndex).toBeGreaterThan(Math.max(...overlayZIndices));
   });
 
-  test("renders the floating workspace menus in the requested order", () => {
+  test("renders the floating workspace menus in the requested order in Edit mode", async () => {
+    await setWorkspaceMode("edit");
     const markup = renderToStaticMarkup(
       <WorkspaceToolbar
         initialMapName="Eldoria"
@@ -58,7 +62,7 @@ describe("WorkspaceToolbar", () => {
       />
     );
 
-    const labels = ["Eldoria", "Project", "Inspect", "Generate", "Create", "Edit", "Views"];
+    const labels = ["Eldoria", "Project", "Generate", "Create", "Edit", "Views"];
     labels.reduce((previousIndex, label) => {
       const index = markup.indexOf(`>${label}<`);
       expect(index).toBeGreaterThan(previousIndex);
@@ -67,14 +71,23 @@ describe("WorkspaceToolbar", () => {
 
     expect(markup.includes('id="workspaceProjectTrigger"')).toBe(true);
     expect(markup.includes('id="workspaceCreateTrigger"')).toBe(true);
-    expect(markup.includes('id="workspaceInspectTrigger"')).toBe(true);
+    expect(markup.includes('id="workspaceInspectTrigger"')).toBe(false);
     expect(markup.includes('id="workspaceMapTrigger"')).toBe(true);
     expect(markup.includes('id="workspaceViewsTrigger"')).toBe(true);
     expect(markup.includes('id="workspaceGenerateTrigger"')).toBe(true);
     expect(markup.includes("Fantasia")).toBe(false);
   });
 
-  test("keeps Edit focused and consolidates layers and view modes in Views", () => {
+  test("uses Fantasia as the default map identity", () => {
+    const markup = renderToStaticMarkup(
+      <WorkspaceToolbar initialMapSnapshot={snapshot} mapControls={controls} onOpenSection={vi.fn()} />
+    );
+
+    expect(markup.includes('aria-label="Current map: Fantasia"')).toBe(true);
+    expect(markup.includes(">Fantasia<")).toBe(true);
+  });
+
+  test("keeps Edit focused and consolidates 2D layers in Views", () => {
     const menuSnapshot: LayerControlsSnapshot = {
       ...snapshot,
       layers: [
@@ -121,23 +134,22 @@ describe("WorkspaceToolbar", () => {
       ]
     };
     const closeViews = vi.fn();
-    const onChangeViewMode = vi.fn();
     const onOpenSection = vi.fn();
     const editItems = EditMenuItems({ close: vi.fn() });
     const layerItems = LayerMenuItems({ controls, snapshot: menuSnapshot });
     const viewsItems = ViewsMenuItems({
       close: closeViews,
       controls,
-      onChangeViewMode,
+      mode: "edit",
       onOpenSection,
-      snapshot: menuSnapshot,
-      viewMode: "viewStandard"
+      snapshot: menuSnapshot
     });
     const editMarkup = renderToStaticMarkup(editItems);
     const viewsMarkup = renderToStaticMarkup(viewsItems);
 
     expect(editMarkup.includes(">World<")).toBe(true);
     expect(editMarkup.includes(">Heightmap<")).toBe(true);
+    expect(editMarkup.includes(">Notes<")).toBe(true);
     expect(editMarkup.includes(">Show on map<")).toBe(false);
     expect(editMarkup.includes(">Temperature<")).toBe(false);
 
@@ -154,10 +166,11 @@ describe("WorkspaceToolbar", () => {
     expect(viewsMarkup.includes(">Other<")).toBe(true);
     expect(viewsMarkup.includes(">Plugin Layer<")).toBe(true);
     expect(viewsMarkup.includes(">Manage Layers…<")).toBe(false);
-    expect(viewsMarkup.includes(">View mode<")).toBe(true);
-    expect(viewsMarkup.includes(">Standard<")).toBe(true);
-    expect(viewsMarkup.includes(">3D scene<")).toBe(true);
-    expect(viewsMarkup.includes(">Globe<")).toBe(true);
+    expect(viewsMarkup.includes(">View mode<")).toBe(false);
+    expect(viewsMarkup.includes(">3D scene<")).toBe(false);
+    expect(viewsMarkup.includes(">Globe<")).toBe(false);
+    expect(viewsMarkup.includes(">Explore<")).toBe(true);
+    expect(viewsMarkup.includes(">Charts<")).toBe(true);
 
     const layerGroups = layerItems.props.children[0];
     const terrainGroup = layerGroups[0];
@@ -165,13 +178,9 @@ describe("WorkspaceToolbar", () => {
     temperatureLayer.props.onClick();
     expect(controls.toggleLayer).toHaveBeenCalledWith("toggleTemperature");
 
-    viewsItems.props.children[5].props.onClick();
+    viewsItems.props.children[6].props.children[1].props.onClick();
     expect(closeViews).toHaveBeenCalledOnce();
     expect(onOpenSection).toHaveBeenCalledWith("style");
-
-    viewsItems.props.children[7][2].props.onClick();
-    expect(onChangeViewMode).toHaveBeenCalledWith("viewGlobe");
-    expect(closeViews).toHaveBeenCalledTimes(2);
   });
 
   test("docks editors launched from Edit", () => {
@@ -187,5 +196,18 @@ describe("WorkspaceToolbar", () => {
     expect(close).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith({ dialogPresentation: "panel" });
     invoke.mockRestore();
+  });
+
+  test("keeps the View/Edit switch visible while removing authoring menus in View mode", async () => {
+    await setWorkspaceMode("view");
+    const markup = renderToStaticMarkup(
+      <WorkspaceToolbar initialMapSnapshot={snapshot} mapControls={controls} onOpenSection={vi.fn()} />
+    );
+
+    expect(markup.includes('aria-label="Workspace mode"')).toBe(true);
+    expect(markup.includes('aria-pressed="true"')).toBe(true);
+    expect(markup.includes('id="workspaceCreateTrigger"')).toBe(false);
+    expect(markup.includes('id="workspaceMapTrigger"')).toBe(false);
+    expect(markup.includes('id="workspaceGenerateTrigger"')).toBe(false);
   });
 });

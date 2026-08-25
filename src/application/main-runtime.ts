@@ -1,6 +1,7 @@
 // Azgaar and contributors, 2017-2026. MIT License
-// https://github.com/Azgaar/Fantasy-Map-Generator
+// Fantasia application runtime
 
+import Alea from "alea";
 import {
   interpolateSpectral,
   leastIndex,
@@ -13,7 +14,7 @@ import {
   scaleSequential,
   select
 } from "d3";
-import { closeDialogs } from "@/components/dialog/dialog-helpers";
+import { closeDialogs, closeEditDialogs } from "@/components/dialog/dialog-helpers";
 import { LayerControls } from "@/components/layers/layer-controls";
 import { OptionsController, type RegenerateOptions } from "@/components/options/options-controller";
 import { StylePresets } from "@/components/style/style-presets-controller";
@@ -27,8 +28,12 @@ import { clearLegend } from "@/renderers/draw-legend";
 import { drawScaleBar } from "@/renderers/draw-scalebar";
 import { drawLabels } from "@/renderers/labels/labels-renderer";
 import { unfog } from "@/renderers/overlays/fogging";
+import { clearMapInteractionOverlay } from "@/renderers/pixi/pixi-renderer-controller";
 import { tradeAnimation } from "@/renderers/trade-animation";
 import { initiateAutosave } from "@/services/autosave";
+import { LocalMapStorage } from "@/services/io/local-map-storage";
+import { notifyMapMutation } from "@/services/map-mutation";
+import { getUnitSettings } from "@/services/units-settings";
 import { cleanupData } from "@/services/versioning";
 import type { Grid } from "@/types/grid";
 import type { PackedGraph } from "@/types/PackedGraph";
@@ -53,7 +58,16 @@ import {
 import { stored } from "@/utils/preferences";
 import { bindApplicationController } from "./application-controller";
 import { initializeApplicationState } from "./application-state";
+import { endViewSession, startViewSession } from "./view-session-state";
 import { getViewportSurface, initializeViewportSurface } from "./viewport-surface";
+import {
+  getWorkspaceMode,
+  initializeWorkspaceMode,
+  registerWorkspaceModeTransitionHandler,
+  requireWorkspaceCapability
+} from "./workspace-mode";
+
+getUnitSettings();
 
 // set debug options
 const PRODUCTION = Boolean(location.hostname && location.hostname !== "localhost" && location.hostname !== "127.0.0.1");
@@ -82,10 +96,14 @@ const initialViewport = initializeViewportSurface();
 // assign events separately as not a viewbox child
 initialViewport.scaleBar
   .on("mousemove", () => tip("Click to open Units Editor"))
-  .on("click", () => window.Controllers.UnitsEditor.open());
+  .on("click", () => {
+    if (requireWorkspaceCapability("map:edit")) window.Controllers.UnitsEditor.open();
+  });
 initialViewport.legend
   .on("mousemove", () => tip("Drag to change the position. Click to hide the legend"))
-  .on("click", () => clearLegend());
+  .on("click", () => {
+    if (requireWorkspaceCapability("map:edit")) clearLegend();
+  });
 
 const mapWidthInput = ensureEl<HTMLInputElement>("mapWidthInput");
 const mapHeightInput = ensureEl<HTMLInputElement>("mapHeightInput");
@@ -133,8 +151,7 @@ const app = initializeApplicationState({
     military: Military.getDefaultOptions(),
     trade: {
       animation: JSON.safeParse(localStorage.getItem("trade-animation") || "") || tradeAnimation.getDefaultOptions()
-    },
-    threeD: { ...window.ThreeDOptions }
+    }
   },
   populationRate: +ensureEl<HTMLInputElement>("populationRateInput").value,
   scale: 1,
@@ -150,6 +167,42 @@ const app = initializeApplicationState({
   viewY: 0
 });
 
+initializeWorkspaceMode({ onCapabilityDenied: message => tip(message, false, "error") });
+registerWorkspaceModeTransitionHandler(nextMode => {
+  if (nextMode === "view") {
+    if (app.customization) {
+      tip("Finish or cancel the active editing workflow before entering View mode", false, "error");
+      return false;
+    }
+    closeEditDialogs();
+    clearMapInteractionOverlay();
+    if (
+      ["create", "edit", "style", "world-setup", "regenerate"].includes(document.body.dataset.workspaceSection ?? "")
+    ) {
+      OptionsController.hide();
+    }
+    startViewSession(
+      new Map(LayerControls.getSnapshot().layers.map(layer => [layer.id, layer.visible])),
+      LayerControls.getLayerOrder()
+    );
+    return true;
+  }
+
+  endViewSession(
+    (layerId, visible) => LayerControls.setLayerVisibility(layerId, visible),
+    order => LayerControls.setLayerOrder(order as Parameters<typeof LayerControls.setLayerOrder>[0])
+  );
+  return true;
+});
+window.addEventListener("map:loaded", () => {
+  if (getWorkspaceMode() === "view") {
+    startViewSession(
+      new Map(LayerControls.getSnapshot().layers.map(layer => [layer.id, layer.visible])),
+      LayerControls.getLayerOrder()
+    );
+  }
+});
+
 OptionsController.applyStoredOptions();
 app.graphWidth = +mapWidthInput.value;
 app.graphHeight = +mapHeightInput.value;
@@ -162,8 +215,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyDefaultViewboxEvents();
 
   if (!location.hostname) {
-    const wiki = "https://github.com/Azgaar/Fantasy-Map-Generator/wiki/Run-FMG-locally";
-    const messageHtml = /* html */ `Fantasy Map Generator cannot run serverless. Follow the <a href="${wiki}" target="_blank">instructions</a> on how you can easily run a local web-server`;
+    const repository = "https://github.com/patkepa/fantasia";
+    const messageHtml = /* html */ `Fantasia cannot run serverless. Follow the <a href="${repository}" target="_blank">repository instructions</a> to run a local web server.`;
 
     window.showMessageDialog({
       id: "serverlessLoadingErrorDialog",
@@ -219,7 +272,7 @@ async function checkLoadParameters() {
   // check if there is a map saved to indexedDB
   if (ensureEl<HTMLSelectElement>("onloadBehavior").value === "lastSaved") {
     try {
-      const blob = await ldb.get("lastMap");
+      const blob = await LocalMapStorage.get("lastMap");
       if (blob) {
         WARN && console.warn("Loading last stored map");
         window.Services.Load.uploadMap(blob);
@@ -237,7 +290,7 @@ async function checkLoadParameters() {
 
 async function generateMapOnLoad() {
   await StylePresets.applyOnLoad(); // apply previously selected default or custom style
-  await generate(); // generate map
+  await generate(undefined, false); // generate map without marking a new document as user-modified
   LayerControls.restoreSavedPreset(); // apply saved layers preset and render layers
   LayerControls.drawActiveLayers();
   OptionsController.fitMapToScreen();
@@ -395,7 +448,7 @@ void (function addDragToUpload() {
   });
 })();
 
-async function generate(config?: string | RegenerateOptions) {
+async function generate(config?: string | RegenerateOptions, reportMapMutation: boolean = true) {
   let generationGroupOpen = false;
 
   try {
@@ -494,7 +547,7 @@ async function generate(config?: string | RegenerateOptions) {
     const duration = performance.now() - timeStart;
     window.MapPerformance?.record("generation:total", duration);
     WARN && console.warn(`TOTAL: ${rn(duration / 1000, 2)}s`);
-    showStatistics();
+    showStatistics(reportMapMutation);
   } catch (error) {
     ERROR && console.error(error);
     const parsedError = parseError(error as Error);
@@ -540,7 +593,7 @@ function setSeed(precreatedSeed?: string): void {
   }
 
   ensureEl<HTMLInputElement>("optionsSeed").value = app.seed;
-  Math.random = aleaPRNG(app.seed);
+  Math.random = Alea(app.seed);
 }
 
 function addLakesInDeepDepressions() {
@@ -1015,7 +1068,7 @@ function rankCells() {
 }
 
 // show map stats on generation complete
-function showStatistics() {
+function showStatistics(reportMapMutation: boolean = true) {
   const heightmap = ensureEl<HTMLInputElement>("templateInput").value;
   const isTemplate = heightmap in heightmapTemplates;
   const heightmapType = isTemplate ? "template" : "precreated";
@@ -1043,6 +1096,7 @@ function showStatistics() {
     template: heightmap,
     created: app.mapId
   });
+  if (reportMapMutation) notifyMapMutation("generation");
   INFO && console.info(stats);
 
   // Dispatch event for test automation and external integrations
@@ -1056,13 +1110,12 @@ const regenerateMap = debounce(async (config?: string | RegenerateOptions) => {
   const shouldShowLoading = cellsDesired > 10000;
   shouldShowLoading && showLoading();
 
-  closeDialogs("#worldConfigurator, #options3d");
+  closeDialogs("#worldConfigurator");
   app.customization = 0;
   resetZoom(1000);
   undraw();
   await generate(config);
   LayerControls.drawActiveLayers();
-  if (app.options.threeD.isOn) window.Controllers.View3d.redraw();
   if (findEl("worldConfigurator")?.offsetParent) window.Controllers.WorldConfigurator.open();
 
   OptionsController.fitMapToScreen();

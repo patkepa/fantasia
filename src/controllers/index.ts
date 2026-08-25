@@ -7,6 +7,7 @@ export const Controllers = createRegistry({
   BiomesEditor: () => import("@/controllers/biomes-editor").then(m => m.BiomesEditor),
   BurgCreator: () => import("@/controllers/burg-creator").then(m => m.BurgCreator),
   BurgEditor: () => import("@/controllers/burg-editor").then(m => m.BurgEditor),
+  BurgInfo: () => import("@/controllers/burg-info").then(m => m.BurgInfo),
   BurgGroupEditor: () => import("@/controllers/burg-group-editor").then(m => m.BurgGroupEditor),
   BurgsOverview: () => import("@/controllers/burgs-overview").then(m => m.BurgsOverview),
   CellInfo: () => import("@/controllers/cell-info").then(m => m.CellInfo),
@@ -67,7 +68,6 @@ export const Controllers = createRegistry({
   TradeDetails: () => import("@/controllers/trade-details").then(m => m.TradeDetails),
   TransformTool: () => import("@/controllers/transform-tool").then(m => m.TransformTool),
   UnitsEditor: () => import("@/controllers/units-editor").then(m => m.UnitsEditor),
-  View3d: () => import("@/controllers/view-3d").then(m => m.View3d),
   WorldConfigurator: () => import("@/controllers/world-configurator").then(m => m.WorldConfigurator),
   ZonesEditor: () => import("@/controllers/zones-editor").then(m => m.ZonesEditor)
 });

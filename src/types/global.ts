@@ -101,7 +101,6 @@ declare global {
   var culturesInput: HTMLInputElement;
   var culturesSet: HTMLSelectElement;
   var heightExponentInput: HTMLInputElement;
-  var alertMessage: HTMLElement;
   var mapName: HTMLInputElement;
   var religionsNumber: HTMLInputElement;
   var distanceUnitInput: HTMLInputElement;
@@ -121,11 +120,6 @@ declare global {
 
   var mapId: number;
 
-  // IO / loading helpers defined in classic public/ scripts
-  var ldb: {
-    get: (key: string) => Promise<Blob | undefined>;
-    set: (key: string, value: Blob) => Promise<void>;
-  };
   var Dropbox: any; // dropbox-sdk global, loaded on demand from libs/dropbox-sdk.min.js
   var mapHistory: MapHistoryEntry[];
 
@@ -135,8 +129,6 @@ declare global {
   var RgbQuant: any; // external RgbQuant image-quantization lib
 
   var shiftCompass: () => void;
-
-  var FlatQueue: any;
 
   var THREE: any; // lazy-loaded
 
@@ -166,7 +158,6 @@ declare global {
       }
     | undefined;
 
-  var aleaPRNG: (seed: string | number) => () => number;
   var heightmapColorSchemes: Record<string, unknown>;
 
   type MilitaryUnit = ApplicationMilitaryUnit;

@@ -1,21 +1,23 @@
 // Save the whole .map project to storage, machine or cloud
 
+import { getDocumentLayerOrder, getDocumentLayerVisibility } from "@/application/view-session-state";
 import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { LayerControls } from "@/components/layers/layer-controls";
 import { tip } from "@/components/tooltips";
-import { capturePixiLayerVisibility } from "@/renderers/pixi/pixi-layer-visibility-state";
 import { Services } from "@/services";
 import { getUsedFonts } from "@/services/fonts";
+import { LocalMapStorage } from "@/services/io/local-map-storage";
 import { VERSION } from "@/services/versioning";
 import { ensureEl, getFileName, link, parseError } from "@/utils";
 import type { MapDataSection } from "./map-data-serializer";
 import { serializeMapSectionsInWorker } from "./map-data-serializer-client";
+import { createSerializedMapStyle } from "./serialized-map-style";
 
 type SaveMethod = "storage" | "machine" | "dropbox";
 
 async function saveMap(method: SaveMethod): Promise<void> {
   if (customization) return tip("Map cannot be saved in EDIT mode, please complete the edit and retry", false, "error");
-  closeDialogs("#alert");
+  closeDialogs();
 
   try {
     const mapData = await prepareMapData();
@@ -28,7 +30,7 @@ async function saveMap(method: SaveMethod): Promise<void> {
   } catch (error) {
     ERROR && console.error(error);
     const messageHtml = /* html */ `An error occurred while saving the map. If the issue persists, please copy the message below and report it on ${link(
-      "https://github.com/Azgaar/Fantasy-Map-Generator/issues",
+      "https://github.com/patkepa/fantasia/issues",
       "GitHub"
     )}. <p id="errorBox">${parseError(error as Error)}</p>`;
     const { showMessageDialog } = await import("@/components/ui/message-dialog");
@@ -46,7 +48,7 @@ async function prepareMapData(): Promise<string> {
   await waitForMainThreadIdle();
   const date = new Date();
   const dateString = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
-  const license = "File can be loaded in azgaar.github.io/Fantasy-Map-Generator";
+  const license = "File can be loaded in patkepa.github.io/fantasia";
   const params = [VERSION, license, dateString, seed, graphWidth, graphHeight, mapId].join("|");
   const settings = [
     distanceUnitInput.value,
@@ -68,7 +70,7 @@ async function prepareMapData(): Promise<string> {
     "", // previously used for temperatureEquatorOutput.value
     "", // previously used for tempNorthOutput.value
     "", // previously used for precOutput.value, part of options now
-    JSON.stringify({ ...options, threeD: undefined }),
+    JSON.stringify(options),
     mapName.value,
     "", // previously used for hideLabels
     stylePreset.value,
@@ -88,7 +90,21 @@ async function prepareMapData(): Promise<string> {
   cloneEl.querySelector("#viewbox")?.removeAttribute("transform");
   cloneEl
     .querySelector("#labels")
-    ?.setAttribute("data-layer-active", String(window.LayerControls.isLayerOn("toggleLabels")));
+    ?.setAttribute(
+      "data-layer-active",
+      String(getDocumentLayerVisibility("toggleLabels", window.LayerControls.isLayerOn("toggleLabels")))
+    );
+  for (const [controlId, selector] of [
+    ["toggleRulers", "#ruler"],
+    ["toggleScaleBar", "#scaleBar"],
+    ["toggleVignette", "#vignette"]
+  ] as const) {
+    const layer = cloneEl.querySelector<SVGElement>(selector);
+    if (layer)
+      layer.style.display = getDocumentLayerVisibility(controlId, window.LayerControls.isLayerOn(controlId))
+        ? ""
+        : "none";
+  }
   cloneEl.querySelector("#mapInteractionOverlay")?.remove();
   cloneEl.querySelector("#mapInteractionSurface")?.remove();
 
@@ -105,8 +121,11 @@ async function prepareMapData(): Promise<string> {
 
   const { spacing, cellsX, cellsY, boundary, points, features, cellsDesired } = grid;
   const gridGeneral = { spacing, cellsX, cellsY, boundary, points, features, cellsDesired };
-  capturePixiLayerVisibility(style, controlId => window.LayerControls.isLayerOn(controlId));
-  style.mapLayerOrder = LayerControls.getLayerOrder();
+  const serializedStyle = createSerializedMapStyle(
+    style,
+    getDocumentLayerOrder(LayerControls.getLayerOrder()),
+    controlId => getDocumentLayerVisibility(controlId, window.LayerControls.isLayerOn(controlId))
+  );
 
   // store custom good icons
   const goodIconsEl = ensureEl("good-icons");
@@ -176,7 +195,7 @@ async function prepareMapData(): Promise<string> {
     text(customGoodIcons),
     json(pack.measurers ?? []),
     json(pack.addedLabels || []),
-    json(style),
+    json(serializedStyle),
     json(pack.relief || [])
   ]);
 }
@@ -189,7 +208,7 @@ function waitForMainThreadIdle(): Promise<void> {
 // save map file to indexedDB
 async function saveToStorage(mapData: string, showTip = false): Promise<void> {
   const blob = new Blob([mapData], { type: "text/plain" });
-  await ldb.set("lastMap", blob);
+  await LocalMapStorage.set("lastMap", blob);
   showTip && tip("Map is saved to the browser storage", false, "success");
 }
 

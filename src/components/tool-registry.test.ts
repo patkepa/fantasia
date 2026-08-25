@@ -12,7 +12,7 @@ import { getToolCommands, matchesToolCommand, TOOL_COMMANDS, TOOL_GROUPS } from 
 
 describe("tool registry", () => {
   test("gives every command stable unique identifiers and required metadata", () => {
-    expect(TOOL_COMMANDS).toHaveLength(51);
+    expect(TOOL_COMMANDS).toHaveLength(49);
     expect(new Set(TOOL_COMMANDS.map(command => command.id)).size).toBe(TOOL_COMMANDS.length);
     expect(new Set(TOOL_COMMANDS.map(command => command.controlId)).size).toBe(TOOL_COMMANDS.length);
 
@@ -20,6 +20,7 @@ describe("tool registry", () => {
       expect(command.label.length).toBeGreaterThan(0);
       expect(command.description.length).toBeGreaterThan(0);
       expect(command.icon.length).toBeGreaterThan(0);
+      expect(["map:inspect", "map:edit", "map:generate"].includes(command.requiredCapability)).toBe(true);
       expect(typeof command.invoke).toBe("function");
     }
 
@@ -31,6 +32,7 @@ describe("tool registry", () => {
     for (const group of TOOL_GROUPS) expect(getToolCommands(group.id).length).toBeGreaterThan(0);
     expect(getToolCommands("politics").some(command => command.id === "politics.states")).toBe(true);
     expect(getToolCommands("settlements").some(command => command.id === "settlements.burgs")).toBe(true);
+    expect(getToolCommands("geography").some(command => command.id === "geography.notes")).toBe(true);
     expect(getToolCommands("regenerate").every(command => command.destructive)).toBe(true);
   });
 
@@ -46,7 +48,7 @@ describe("tool registry", () => {
 
   test("invokes direct and regeneration command boundaries", () => {
     TOOL_COMMANDS.find(command => command.id === "world.biomes")?.invoke();
-    expect(mocks.invokeController).toHaveBeenCalledWith("editBiomesButton");
+    expect(mocks.invokeController).toHaveBeenCalledWith("editBiomesButton", undefined, undefined, "map:edit");
 
     const regenerationTarget = { dispatchEvent: vi.fn(() => true) };
     TOOL_COMMANDS.find(command => command.id === "regenerate.zones")?.invoke({
@@ -61,6 +63,6 @@ describe("tool registry", () => {
     );
 
     TOOL_COMMANDS.find(command => command.id === "politics.states")?.invoke({ dialogPresentation: "panel" });
-    expect(mocks.invokeController).toHaveBeenCalledWith("editStatesButton", undefined, "panel");
+    expect(mocks.invokeController).toHaveBeenCalledWith("editStatesButton", undefined, "panel", "map:edit");
   });
 });

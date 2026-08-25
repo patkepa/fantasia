@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  type DialogAccess,
   type DialogParams,
   registerManagedDialog
 } from "@/components/dialog/dialog-helpers";
@@ -17,6 +18,7 @@ import type { WorkspaceDialogOffset, WorkspaceDialogPlacement } from "./dialog-p
 import { WorkspaceEditorPanel } from "./workspace-editor-panel";
 
 export interface DomDialogOptions {
+  access?: DialogAccess;
   actions?: DomDialogAction[];
   beforeClose?: () => boolean | void;
   className?: string;
@@ -134,7 +136,7 @@ function DomDialogView({
         mutationObserver.observe(content, observerOptions);
       }
 
-      const panel = host.closest<HTMLElement>(".fmg-editor-panel");
+      const panel = host.closest<HTMLElement>(".fantasia-editor-panel");
       const panelChromeWidth = panel ? Math.max(0, panel.offsetWidth - table.clientWidth) : 0;
       const maximumWidth = window.innerWidth - 40;
       const expandedWidth = Math.min(Math.max(560, Math.ceil(intrinsicTableWidth + panelChromeWidth)), maximumWidth);
@@ -188,7 +190,7 @@ function DomDialogView({
       ))}
     </>
   ) : undefined;
-  const content = <div className="fmg-dom-dialog__content" ref={contentHostRef} />;
+  const content = <div className="fantasia-dom-dialog__content" ref={contentHostRef} />;
 
   if (options.presentation === "panel") {
     const onSearch = options.content.classList.contains("editorDialog")
@@ -313,7 +315,8 @@ export function showDomDialog(initialOptions: DomDialogOptions): DomDialogHandle
     handle.close,
     initialOptions.content.classList.contains("stable"),
     handle.update,
-    requestClose
+    requestClose,
+    options.access
   );
   activeDialogs.set(id, handle);
   flushSync(render);

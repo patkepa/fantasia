@@ -1,14 +1,10 @@
-// The Cell Info panel: everything known about the cell under the cursor
-import { select } from "d3";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
-import { registerManagedDialog } from "@/components/dialog/dialog-helpers";
-import { WorkspaceDialog } from "@/components/ui/dialog";
+// The Cell Info panel: everything known about a selected cell
+import { closeDialogs, destroyDialog } from "@/components/dialog/dialog-helpers";
+import { showDomDialog } from "@/components/ui/dom-dialog";
 import type { Feature } from "@/generators/features";
 import type { Point } from "@/generators/voronoi";
 import {
   convertTemperature,
-  debounce,
   ensureEl,
   findClosestCell,
   findGridCell,
@@ -19,115 +15,74 @@ import {
   getHeight,
   getLatitude,
   getLongitude,
-  getPointer,
   rn,
   si
 } from "@/utils";
 
 const INFO_FIELDS = [
-  ["Latitude", "infoLat", ""],
-  ["Longitude", "infoLon", ""],
-  ["Geozone", "infoGeozone", ""],
-  ["Area", "infoArea", "0"],
-  ["Type", "infoFeature", "n/a"],
-  ["Precipitation", "infoPrec", "0"],
-  ["River", "infoRiver", "no"],
-  ["Population", "infoPopulation", "0"],
-  ["Elevation", "infoElevation", "0"],
-  ["Depth", "infoDepth", "0"],
-  ["Temperature", "infoTemp", "0"],
-  ["Biome", "infoBiome", "n/a"],
-  ["State", "infoState", "n/a"],
-  ["Province", "infoProvince", "n/a"],
-  ["Culture", "infoCulture", "n/a"],
-  ["Religion", "infoReligion", "n/a"],
-  ["Burg", "infoBurg", "n/a"],
-  ["Good", "infoGood", "n/a"],
-  ["Market", "infoMarket", "n/a"],
-  ["Cell Production", "infoCellProduction", "n/a"],
-  ["Burg Production", "infoBurgProduction", "n/a"]
+  ["Latitude", "infoLat", "", "icon-compass"],
+  ["Longitude", "infoLon", "", "icon-target"],
+  ["Geozone", "infoGeozone", "", "icon-globe"],
+  ["Area", "infoArea", "0", "icon-map-o"],
+  ["Type", "infoFeature", "n/a", "icon-layer-group"],
+  ["Precipitation", "infoPrec", "0", "icon-umbrella"],
+  ["River", "infoRiver", "no", "icon-bezier-curve"],
+  ["Population", "infoPopulation", "0", "icon-users"],
+  ["Elevation", "infoElevation", "0", "icon-mountain"],
+  ["Depth", "infoDepth", "0", "icon-anchor"],
+  ["Temperature", "infoTemp", "0", "icon-temperature-high"],
+  ["Biome", "infoBiome", "n/a", "icon-tree"],
+  ["State", "infoState", "n/a", "icon-flag"],
+  ["Province", "infoProvince", "n/a", "icon-map"],
+  ["Culture", "infoCulture", "n/a", "icon-user-friends"],
+  ["Religion", "infoReligion", "n/a", "icon-place-of-worship"],
+  ["Burg", "infoBurg", "n/a", "icon-home"],
+  ["Good", "infoGood", "n/a", "icon-tag"],
+  ["Market", "infoMarket", "n/a", "icon-store"],
+  ["Cell Production", "infoCellProduction", "n/a", "icon-leaf", "wide"],
+  ["Burg Production", "infoBurgProduction", "n/a", "icon-box", "wide"]
 ] as const;
 
-let dialogHost: HTMLDivElement | null = null;
-let dialogRoot: Root | null = null;
-let unregisterDialog: (() => void) | null = null;
-
-function open(): void {
-  cleanup();
-  renderDialog();
-  select<SVGGElement, unknown>("#viewbox").on("touchmove.cellInfo mousemove.cellInfo", updateCellInfo);
-}
-
 function openAt(point: Point): void {
-  cleanup();
-  renderDialog();
-
   const cellId = findClosestCell(...point, undefined, pack);
   if (cellId === undefined) return;
+  closeDialogs(".stable");
+  destroyDialog("cellInfo");
+
+  const provinceId = pack.cells.province[cellId];
+  const province = pack.provinces[provinceId];
+  const title = province ? `Province: ${province.fullName || province.name}` : `Cell ${cellId}`;
+  const fields = INFO_FIELDS.map(
+    ([label, id, initialValue, icon, size]) => /* html */ `
+      <div class="cell-info__item${size === "wide" ? " cell-info__item--wide" : ""}">
+        <i aria-hidden="true" class="${icon}"></i>
+        <span class="cell-info__label">${label}</span>
+        <span class="cell-info__value" id="${id}">${initialValue}</span>
+      </div>`
+  ).join("");
+  ensureEl("dialogs").insertAdjacentHTML(
+    "beforeend",
+    /* html */ `<div id="cellInfo" class="dialog stable cell-info">
+      <div class="cell-info__coordinates">
+        <span><i aria-hidden="true" class="icon-map"></i>Cell <b id="infoCell"></b></span>
+        <span><i aria-hidden="true" class="icon-resize-horizontal"></i>X <b id="infoX"></b></span>
+        <span><i aria-hidden="true" class="icon-resize-vertical"></i>Y <b id="infoY"></b></span>
+      </div>
+      <div class="cell-info__grid">${fields}</div>
+    </div>`
+  );
   updateFields(point, cellId, findGridCell(point[0], point[1], grid));
-}
-
-function cleanup(): void {
-  select<SVGGElement, unknown>("#viewbox").on(".cellInfo", null);
-  unregisterDialog?.();
-  unregisterDialog = null;
-
-  const root = dialogRoot;
-  const host = dialogHost;
-  dialogRoot = null;
-  dialogHost = null;
-  if (!root) return;
-
-  queueMicrotask(() => {
-    root.unmount();
-    host?.remove();
+  showDomDialog({
+    access: "inspect",
+    className: "cell-info-panel",
+    content: ensureEl("cellInfo"),
+    placement: "top-right",
+    placementTarget: document.getElementById("map"),
+    presentation: "panel",
+    resizable: false,
+    title
   });
 }
-
-function renderDialog(): void {
-  dialogHost = document.createElement("div");
-  dialogHost.dataset.dialogHost = "cellInfo";
-  ensureEl("dialogs").appendChild(dialogHost);
-  dialogRoot = createRoot(dialogHost);
-  unregisterDialog = registerManagedDialog("cellInfo", cleanup, true);
-
-  flushSync(() => {
-    dialogRoot?.render(
-      <WorkspaceDialog
-        className="dialog stable"
-        dialogId="cellInfo"
-        isModal={false}
-        isOpen
-        onClose={cleanup}
-        placement="top-right"
-        placementTarget={document.querySelector("svg")}
-        title="Cell Details"
-        width="22em"
-      >
-        <p>
-          <b>Cell:</b> <span id="infoCell" /> <b>X:</b> <span id="infoX" /> <b>Y:</b> <span id="infoY" />
-        </p>
-        {INFO_FIELDS.map(([label, id, initialValue]) => (
-          <p key={id}>
-            <b>{label}:</b> <span id={id}>{initialValue}</span>
-          </p>
-        ))}
-      </WorkspaceDialog>
-    );
-  });
-}
-
-const updateCellInfo = debounce((event: MouseEvent | TouchEvent): void => {
-  const node = event.currentTarget as SVGElement | null;
-  if (!node || !pack.cells?.p) return;
-
-  const point = getPointer(event, node);
-  const packCellId = findClosestCell(...point, undefined, pack);
-  if (packCellId === undefined) return;
-
-  const gridCellId = findGridCell(point[0], point[1], grid);
-  updateFields(point, packCellId, gridCellId);
-}, 100);
 
 function updateFields(point: Point, cellId: number, gridCellId: number): void {
   const { cells } = pack;
@@ -252,4 +207,4 @@ function getFriendlyPopulation(cellId: number): string {
   return `${si(rural + urban)} (${si(rural)} rural, urban ${si(urban)})`;
 }
 
-export const CellInfo = { open, openAt };
+export const CellInfo = { openAt };

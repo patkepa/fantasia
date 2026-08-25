@@ -1,3 +1,5 @@
+import { setViewSessionLayerVisibility } from "@/application/view-session-state";
+import { getWorkspaceMode, requireWorkspaceCapability } from "@/application/workspace-mode";
 import { tip } from "@/components/tooltips";
 import type { MapLayerId } from "@/renderers/core/layer-registry";
 import { MAP_LAYER_REGISTRY, normalizeMapLayerOrder, resolveMapLayerOrder } from "@/renderers/core/layer-registry";
@@ -10,6 +12,7 @@ import {
 } from "@/renderers/pixi/pixi-renderer-controller";
 import type { PixiOwnedLayer } from "@/renderers/pixi/pixi-renderer-ownership";
 import { getMapRendererStyle } from "@/renderers/scene/map-style-state";
+import { notifyMapMutation } from "@/services/map-mutation";
 import { ensureEl, findEl } from "@/utils";
 import { enableVerticalSortable } from "../dialog/vertical-sortable";
 import {
@@ -20,6 +23,7 @@ import {
   type LayerPresetOption,
   type LegacyLayerControls
 } from "./layer-controls";
+import { mountLayerPanel } from "./layer-panel";
 
 type LayerToggleId = keyof typeof PIXI_LAYER_BY_TOGGLE | "toggleRulers" | "toggleScaleBar" | "toggleVignette";
 type LayerPresetMap = Record<string, LayerToggleId[]>;
@@ -243,6 +247,7 @@ let selectedPreset = "political";
 
 export function initializeLayerControlsRuntime(): void {
   if (initialized) return;
+  mountLayerPanel();
   initialized = true;
   initializePresetStateFromDom();
   restoreCustomPresets();
@@ -250,12 +255,16 @@ export function initializeLayerControlsRuntime(): void {
   syncRendererLayerOrder();
   enableVerticalSortable({
     container: ensureEl("mapLayers"),
-    handleSelector: ".fmg-layer-row__handle",
+    handleSelector: ".fantasia-layer-row__handle",
     itemSelector: "li:not(.solid)",
     onUpdate: item => {
       syncLayerOrderFromDom();
       moveSvgLayerById(item.id, item.previousElementSibling?.id, item.nextElementSibling?.id);
       syncRendererLayerOrder();
+      if (getWorkspaceMode() === "edit") {
+        style.mapLayerOrder = getMapLayerOrder();
+        notifyMapMutation("layer-order");
+      }
       notifyLayerControlsChanged();
     }
   });
@@ -305,6 +314,8 @@ export function isLayerOn(id: string): boolean {
 
 export function setLayerButtonVisibility(id: string, visible: boolean): void {
   ensureEl(id).classList.toggle("buttonoff", !visible);
+  if (getWorkspaceMode() === "view") setViewSessionLayerVisibility(id, visible);
+  else persistLayerVisibility(id, visible);
   getCurrentPreset();
   ViewportLayers.invalidateAll();
   notifyLayerControlsChanged();
@@ -383,6 +394,7 @@ function disableLayer(id: LayerToggleId): void {
 }
 
 function openLayerStyle(id: LayerToggleId): void {
+  if (!requireWorkspaceCapability("map:edit")) return;
   const target = STYLE_TARGET_BY_TOGGLE[id];
   if (target) window.StyleEditor.edit(target);
   else if (id === "toggleMarkers" || id === "toggleBurgIcons") {
@@ -466,10 +478,12 @@ function drawGrid(): void {
 function drawZones(): void {
   const filterBy = ensureEl<HTMLSelectElement>("zonesFilterType").value;
   const current = getMapRendererStyle(style).zones;
-  style.mapRenderer!.zones = {
-    ...current,
-    filterType: filterBy && filterBy !== "all" ? filterBy : null
-  };
+  if (getWorkspaceMode() === "edit") {
+    style.mapRenderer!.zones = {
+      ...current,
+      filterType: filterBy && filterBy !== "all" ? filterBy : null
+    };
+  }
   invalidatePixiRendererLayer("zones");
 }
 
@@ -504,17 +518,17 @@ function handleLayersPresetChange(preset: string): void {
     const shouldBeVisible = visible.has(id);
     if (isLayerOn(id) !== shouldBeVisible) toggleLayer(id);
   }
-  if (document.getElementById("canvas3d")) window.setTimeout(() => void window.Controllers.View3d.update(), 400);
   notifyLayerControlsChanged();
 }
 
 function setLayersPreset(preset: string): void {
   selectedPreset = preset;
   syncLegacyPresetControl();
-  localStorage.setItem("preset", preset);
+  if (getWorkspaceMode() === "edit") localStorage.setItem("preset", preset);
 }
 
 function savePresetByName(name: string): void {
+  if (!requireWorkspaceCapability("map:edit")) return;
   const preset = name.trim();
   if (!preset) return;
   presets[preset] = [...ensureEl("mapLayers").querySelectorAll("li:not(.buttonoff)")]
@@ -533,6 +547,7 @@ function savePresetByName(name: string): void {
 }
 
 function removePreset(): void {
+  if (!requireWorkspaceCapability("map:edit")) return;
   const preset = selectedPreset;
   if (preset === "custom" || DEFAULT_PRESETS[preset as keyof typeof DEFAULT_PRESETS]) return;
   delete presets[preset];
@@ -545,6 +560,7 @@ function removePreset(): void {
 }
 
 function promptAndSavePreset(): void {
+  if (!requireWorkspaceCapability("map:edit")) return;
   const legacyPrompt = window.prompt as unknown as (
     message: string,
     options: { default: string },
@@ -653,6 +669,10 @@ function moveLayerById(id: string, previousId?: string, nextId?: string): void {
   layerOrder = nextOrder;
   moveSvgLayerById(id, previousId, nextId);
   syncRendererLayerOrder();
+  if (getWorkspaceMode() === "edit") {
+    style.mapLayerOrder = getMapLayerOrder();
+    notifyMapMutation("layer-order");
+  }
   notifyLayerControlsChanged();
 }
 
@@ -697,6 +717,13 @@ function restoreMapLayerOrder(order: readonly MapLayerId[]): void {
   }
   syncRendererLayerOrder();
   notifyLayerControlsChanged();
+}
+
+function persistLayerVisibility(id: string, visible: boolean): void {
+  const layer = PIXI_LAYER_BY_TOGGLE[id as keyof typeof PIXI_LAYER_BY_TOGGLE] as MapLayerId | undefined;
+  if (!layer) return;
+  style.mapLayerVisibility = { ...style.mapLayerVisibility, [layer]: visible };
+  notifyMapMutation("layer-visibility");
 }
 
 function getSvgLayer(id: string): Element | null {
