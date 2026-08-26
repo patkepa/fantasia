@@ -8,6 +8,8 @@ import {
 } from "./pixi-renderer-controller";
 import { activatePixiRendererOwnership } from "./pixi-renderer-ownership";
 
+export const PIXI_RENDERER_FAILURE_EVENT = "map:pixi-renderer:failure";
+
 activatePixiRendererOwnership();
 bindRendererCommands(pixiRendererController);
 window.MapRendererCommands = rendererCommands;
@@ -28,6 +30,7 @@ export function showRendererFailure(error: unknown): void {
   alert.className = "pixi-renderer-failure";
   alert.textContent = `The map renderer could not start. Enable WebGL or WebGPU and reload the page. ${message}`;
   if (!existing) document.getElementById("map")?.before(alert);
+  window.dispatchEvent(new Event(PIXI_RENDERER_FAILURE_EVENT));
 }
 
 window.addEventListener("map:generated", scheduleStart);

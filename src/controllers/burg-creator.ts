@@ -34,6 +34,7 @@ function addOnClick(event: MouseEvent): void {
 }
 
 function addAt(point: Point): boolean {
+  if (!pack.cells?.p?.length) return false;
   const cell = findCell(point[0], point[1]);
   if (cell === undefined) return false;
 

@@ -52,6 +52,7 @@ export interface PixiRendererOverview {
 
 export const PIXI_RENDERER_SCENE_CHANGE_EVENT = "map:pixi-renderer:scene-change";
 export const PIXI_RENDERER_ANIMATION_FRAME_EVENT = "map:pixi-renderer:animation-frame";
+export const PIXI_RENDERER_READY_EVENT = "map:pixi-renderer:ready";
 export const MAP_CONTENT_CHANGED_EVENT = "map:content-changed";
 
 let instancePromise: Promise<PixiMapRenderer> | null = null;
@@ -69,7 +70,10 @@ function getRendererPreference(): "webgl" | "webgpu" {
 
 const activatePixiMap = (): void => {
   removeLegacyRendererGroups();
-  document.getElementById("map")?.classList.add("pixi-renderer-active");
+  const map = document.getElementById("map");
+  map?.classList.add("pixi-renderer-active");
+  map?.style.setProperty("background-color", "transparent", "important");
+  window.dispatchEvent(new Event(PIXI_RENDERER_READY_EVENT));
 };
 
 const getInstance = async (): Promise<PixiMapRenderer> => {
@@ -108,6 +112,7 @@ const prepareSurface = (): HTMLElement => {
   // The SVG follows this absolutely-positioned surface in DOM order. Make its backdrop transparent as soon as the
   // canvas is mounted, rather than waiting for the first render callback, so it cannot briefly cover Pixi with black.
   map.classList.add("pixi-renderer-surface-ready");
+  map.style.setProperty("background-color", "transparent", "important");
   const surface = document.getElementById("pixi-map-renderer") ?? document.createElement("div");
   surface.id = "pixi-map-renderer";
   surface.style.pointerEvents = "none";

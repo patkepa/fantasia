@@ -17,7 +17,8 @@ import { clearLegend } from "@/renderers/draw-legend";
 import { drawScaleBar } from "@/renderers/draw-scalebar";
 import { drawLabels } from "@/renderers/labels/labels-renderer";
 import { unfog } from "@/renderers/overlays/fogging";
-import { clearMapInteractionOverlay } from "@/renderers/pixi/pixi-renderer-controller";
+import { clearMapInteractionOverlay, PIXI_RENDERER_READY_EVENT } from "@/renderers/pixi/pixi-renderer-controller";
+import { PIXI_RENDERER_FAILURE_EVENT } from "@/renderers/pixi/pixi-renderer-loader";
 import { tradeAnimation } from "@/renderers/trade-animation";
 import { initiateAutosave } from "@/services/autosave";
 import { LocalMapStorage } from "@/services/io/local-map-storage";
@@ -214,11 +215,28 @@ document.addEventListener("DOMContentLoaded", async () => {
       width: "28em"
     });
   } else {
-    hideLoading();
+    const rendererReady = waitForInitialRenderer();
     await checkLoadParameters();
+    await rendererReady;
+    hideLoading();
   }
   initiateAutosave();
 });
+
+function waitForInitialRenderer(): Promise<void> {
+  return new Promise(resolve => {
+    let timeout: number | undefined;
+    const finish = (): void => {
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      window.removeEventListener(PIXI_RENDERER_READY_EVENT, finish);
+      window.removeEventListener(PIXI_RENDERER_FAILURE_EVENT, finish);
+      resolve();
+    };
+    window.addEventListener(PIXI_RENDERER_READY_EVENT, finish, { once: true });
+    window.addEventListener(PIXI_RENDERER_FAILURE_EVENT, finish, { once: true });
+    timeout = window.setTimeout(finish, 15_000);
+  });
+}
 
 function hideLoading() {
   select("#loading").transition().duration(3000).style("opacity", 0);
