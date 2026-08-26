@@ -7,6 +7,7 @@ import {
   type RendererBenchmarkPhase,
   type RendererBenchmarkReport
 } from "../../src/services/renderer-benchmark";
+import { getRenderedFrameSignature } from "../helpers/renderer-frame-signature";
 import { RENDERER_BENCHMARK_FIXTURES, type RendererBenchmarkFixture } from "./fixtures";
 
 const BACKENDS: readonly RendererBenchmarkBackend[] = ["pixi"];
@@ -26,11 +27,25 @@ for (const { backend, fixture, run } of BENCHMARK_CASES) {
       await page.goto(`/?${query}`);
       await page.waitForFunction(() => Boolean((window as any).pack?.cells?.i?.length), { timeout: 120_000 });
 
+      const previousRevision = await page.evaluate(
+        () => (window as any).MapPerformance?.getRendererSnapshot()?.committedWorldRevision ?? 0
+      );
       const timeToMapStarted = performance.now();
       await loadFixture(page, fixture);
-      await page.waitForFunction(() => (window as any).MapPerformance?.getRendererSnapshot()?.enabled === true, {
-        timeout: 120_000
-      });
+      await page.waitForFunction(
+        before => {
+          const snapshot = (window as any).MapPerformance?.getRendererSnapshot();
+          const cells = (window as any).pack?.cells?.i?.length ?? 0;
+          return (
+            snapshot?.lifecycleState === "committed" &&
+            snapshot.committedWorldRevision > before &&
+            snapshot.committedWorldRevision === snapshot.requestedWorldRevision &&
+            snapshot.cells === cells
+          );
+        },
+        previousRevision,
+        { timeout: 120_000 }
+      );
       const timeToMap = performance.now() - timeToMapStarted;
 
       const firstPaint = await page.evaluate(async () => {
@@ -130,6 +145,17 @@ for (const { backend, fixture, run } of BENCHMARK_CASES) {
       };
 
       expect(report.observations.length).toBeGreaterThan(CAMERA_SAMPLES + LAYER_SAMPLES);
+      expect(runtime.pixiSnapshot).toMatchObject({
+        committedWorldRevision: runtime.pixiSnapshot?.requestedWorldRevision,
+        contextLost: false,
+        lifecycleState: "committed"
+      });
+      expect(runtime.canvas?.height ?? 0).toBeGreaterThan(0);
+      expect(runtime.canvas?.width ?? 0).toBeGreaterThan(0);
+      const frame = await getRenderedFrameSignature(page);
+      expect(frame.opaquePixels).toBeGreaterThan(0);
+      expect(frame.colorBuckets).toBeGreaterThan(4);
+      expect(frame.blackRatio).toBeLessThan(0.9);
       expect(report.summaries["camera-frame"]?.p95 ?? Infinity).toBeLessThan(150);
       expect(report.summaries["layer-change"]?.p95 ?? Infinity).toBeLessThan(fixture.kind === "generated" ? 2500 : 3000);
       expect(report.summaries["time-to-map"]?.p95 ?? Infinity).toBeLessThan(120_000);

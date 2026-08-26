@@ -94,7 +94,6 @@ iframe {
 }
 
 /* Pixi owns migrated persistent layers. SVG remains only for layers and interaction overlays not migrated yet. */
-#map.pixi-renderer-surface-ready,
 #map.pixi-renderer-active {
   position: relative;
   z-index: 0;

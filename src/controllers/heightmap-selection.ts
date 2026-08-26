@@ -4,7 +4,7 @@ import { OptionsController } from "@/components/options/options-controller";
 import { showDomDialog } from "@/components/ui/dom-dialog";
 import { heightmapTemplates } from "@/data/heightmap-templates";
 import { precreatedHeightmaps } from "@/data/precreated-heightmaps";
-import { getHeightColorScheme as getColorScheme } from "@/renderers/scene/height-color-schemes";
+import { getHeightColorScheme as getColorScheme, HEIGHT_COLOR_SCHEMES } from "@/renderers/scene/height-color-schemes";
 import { applyOption } from "@/utils";
 import { lock } from "@/utils/preferences";
 import { drawHeights, ensureEl, generateGrid, generateSeed, shouldRegenerateGrid } from "../utils";
@@ -158,7 +158,7 @@ function appendStyleSheet(): void {
 }
 
 function insertHtml(): void {
-  const heightmapColorSchemeOptions = Object.keys(heightmapColorSchemes)
+  const heightmapColorSchemeOptions = Object.keys(HEIGHT_COLOR_SCHEMES)
     .map(scheme => `<option value="${scheme}">${scheme}</option>`)
     .join("");
 

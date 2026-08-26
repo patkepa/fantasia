@@ -77,7 +77,7 @@ describe("Pixi hard cutover", () => {
   it("boots the production renderer without a URL flag, theme, disable path, or console global", () => {
     expect(renderersIndex.includes('import "./pixi/pixi-renderer-loader"')).toBe(true);
     expect(loaderSource.includes("activatePixiRendererOwnership()")).toBe(true);
-    expect(loaderSource.includes("pixiRendererController.start()")).toBe(true);
+    expect(loaderSource.includes("pixiRendererController.start(")).toBe(true);
     expect(loaderSource.includes("URLSearchParams")).toBe(false);
     expect(loaderSource.includes("PixiMapPrototype")).toBe(false);
     expect(controllerSource.includes("disable:")).toBe(false);
@@ -87,7 +87,7 @@ describe("Pixi hard cutover", () => {
     expect(indexSource.includes("main.js")).toBe(false);
     expect(indexSource.includes("libs/d3.min.js")).toBe(false);
     expect(indexSource.includes('src="application/main-runtime.ts"')).toBe(true);
-    expect(indexSource.indexOf('id="toggleRivers"')).toBeGreaterThan(indexSource.indexOf('id="toggleBorders"'));
+    expect(layersSource.includes('"toggleRivers"')).toBe(true);
     expect(indexSource.includes('id="toggleTexture"')).toBe(false);
     expect(indexSource.includes('onclick="toggleTexture(event)"')).toBe(false);
     expect(indexSource.includes('onclick="toggleMarketsLayer(event)"')).toBe(false);
@@ -455,6 +455,15 @@ describe("Pixi hard cutover", () => {
     expect(productionSources.includes("pixi-map-prototype")).toBe(false);
     expect(productionSources.includes("pixi-prototype-states")).toBe(false);
     expect(productionSources.includes("pixi-prototype-biomes")).toBe(false);
+    expect(controllerSource.includes("onFirstFrame")).toBe(false);
+    expect(loadSource.includes("removeLegacyRendererGroups")).toBe(false);
+  });
+
+  it("loads legacy height schemes through the module registry instead of a removed script global", () => {
+    expect(loadSource.includes("heightmapColorSchemes")).toBe(false);
+    expect(loadSource.includes("HEIGHT_COLOR_SCHEMES")).toBe(true);
+    expect(loadSource.includes("addCustomColorScheme(oceanScheme)")).toBe(true);
+    expect(loadSource.includes("addCustomColorScheme(landScheme)")).toBe(true);
   });
 
   it("does not block the initial Pixi frame on optional SVG definitions", () => {

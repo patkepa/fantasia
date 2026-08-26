@@ -274,7 +274,6 @@ export interface PixiMapRendererOptions {
   adaptiveQualityPolicy?: AdaptiveQualityPolicy;
   deviceMemoryGb?: number;
   getDevicePixelRatio?: () => number;
-  onFirstFrame?: () => void;
   onSceneChange?: (kind: PixiSceneChangeKind) => void;
   pickTolerancePixels?: number;
   preference?: "webgl" | "webgpu";
@@ -605,7 +604,6 @@ export class PixiMapRenderer implements MapRenderer {
       reliefSprites,
       renderer: this.app.renderer.constructor.name
     };
-    this.rendererOptions.onFirstFrame?.();
     this.recordPerformance("pixi:first-frame", buildDuration);
 
     const initialLayerTasks = [...asyncLayers].map(([layer, task]) =>

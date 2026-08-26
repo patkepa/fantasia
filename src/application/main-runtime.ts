@@ -18,7 +18,7 @@ import { drawScaleBar } from "@/renderers/draw-scalebar";
 import { drawLabels } from "@/renderers/labels/labels-renderer";
 import { unfog } from "@/renderers/overlays/fogging";
 import { clearMapInteractionOverlay, PIXI_RENDERER_READY_EVENT } from "@/renderers/pixi/pixi-renderer-controller";
-import { PIXI_RENDERER_FAILURE_EVENT } from "@/renderers/pixi/pixi-renderer-loader";
+import { PIXI_RENDERER_FAILURE_EVENT, showRendererFailure } from "@/renderers/pixi/pixi-renderer-loader";
 import { tradeAnimation } from "@/renderers/trade-animation";
 import { initiateAutosave } from "@/services/autosave";
 import { LocalMapStorage } from "@/services/io/local-map-storage";
@@ -200,7 +200,7 @@ app.graphHeight = +mapHeightInput.value;
 app.svgWidth = app.graphWidth;
 app.svgHeight = app.graphHeight;
 
-document.addEventListener("DOMContentLoaded", async () => {
+async function startApplication(): Promise<void> {
   // binds the zoom behaviour and its handlers (see src/components/viewbox-events.ts), so it has to
   // run before checkLoadParameters - deep links (MFCG, a stored view position) zoom the map on load
   applyDefaultViewboxEvents();
@@ -216,26 +216,41 @@ document.addEventListener("DOMContentLoaded", async () => {
       width: "28em"
     });
   } else {
-    const rendererReady = waitForInitialRenderer();
+    const rendererReady = waitForRendererCommit();
     await checkLoadParameters();
     await rendererReady;
     hideLoading();
   }
   initiateAutosave();
-});
+}
 
-function waitForInitialRenderer(): Promise<void> {
+if (document.readyState === "loading")
+  document.addEventListener("DOMContentLoaded", () => void startApplication(), { once: true });
+else void startApplication();
+
+function waitForRendererCommit(): Promise<void> {
   return new Promise(resolve => {
     let timeout: number | undefined;
     const finish = (): void => {
       if (timeout !== undefined) window.clearTimeout(timeout);
       window.removeEventListener(PIXI_RENDERER_READY_EVENT, finish);
       window.removeEventListener(PIXI_RENDERER_FAILURE_EVENT, finish);
+      window.removeEventListener("map:generated", armTimeout);
+      window.removeEventListener("map:loaded", armTimeout);
       resolve();
+    };
+    const armTimeout = (): void => {
+      window.removeEventListener("map:generated", armTimeout);
+      window.removeEventListener("map:loaded", armTimeout);
+      timeout ??= window.setTimeout(
+        () => showRendererFailure(new Error("The renderer did not commit a map frame within 60 seconds")),
+        60_000
+      );
     };
     window.addEventListener(PIXI_RENDERER_READY_EVENT, finish, { once: true });
     window.addEventListener(PIXI_RENDERER_FAILURE_EVENT, finish, { once: true });
-    timeout = window.setTimeout(finish, 15_000);
+    window.addEventListener("map:generated", armTimeout, { once: true });
+    window.addEventListener("map:loaded", armTimeout, { once: true });
   });
 }
 
@@ -1145,6 +1160,7 @@ const regenerateMap = debounce(async (config?: string | RegenerateOptions) => {
 
   const cellsDesired = Number(ensureEl<HTMLInputElement>("pointsInput").dataset.cells);
   const shouldShowLoading = cellsDesired > 10000;
+  const rendererReady = shouldShowLoading ? waitForRendererCommit() : null;
   shouldShowLoading && showLoading();
 
   closeDialogs("#worldConfigurator");
@@ -1156,6 +1172,7 @@ const regenerateMap = debounce(async (config?: string | RegenerateOptions) => {
   if (findEl("worldConfigurator")?.offsetParent) window.Controllers.WorldConfigurator.open();
 
   OptionsController.fitMapToScreen();
+  await rendererReady;
   shouldShowLoading && hideLoading();
   clearMainTip();
 }, 250);

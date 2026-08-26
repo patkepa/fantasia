@@ -22,6 +22,7 @@ import type {
 } from "./pixi-map-renderer";
 import type { PixiOwnedLayer } from "./pixi-renderer-ownership";
 import { readReliefSvgDataUri, readSvgElementDataUri, readSvgSymbolDataUri } from "./relief-icon-svg-adapter";
+import { getRendererFrameIssues } from "./renderer-frame-health";
 
 export interface PixiRendererControllerApi {
   clear: () => Promise<void>;
@@ -29,13 +30,13 @@ export interface PixiRendererControllerApi {
   createOverview: (maxWidth: number, maxHeight: number) => Promise<PixiRendererOverview | null>;
   getCanvas: () => CanvasImageSource | null;
   getRasterCapabilities: () => PixiRasterCapabilities | null;
-  getSnapshot: () => PixiRendererSnapshot | null;
+  getSnapshot: () => PixiRendererHealthSnapshot | null;
   preload: () => Promise<void>;
   invalidateLayer: (layer: PixiOwnedLayer, cellIds?: readonly number[]) => void;
   invalidateStyle: (layer: PixiOwnedLayer) => void;
   queueRebuild: () => void;
   pick: (clientX: number, clientY: number) => MapHit | null;
-  start: () => Promise<void>;
+  start: (revision: number, isCurrent: () => boolean) => Promise<boolean>;
   whenCommitted: (after?: number) => Promise<number>;
   renderRasterFrame: (request: PixiRasterFrameRequest) => Promise<HTMLCanvasElement>;
   setLayerOrder: (order: readonly MapLayerId[]) => void;
@@ -50,6 +51,20 @@ export interface PixiRendererOverview {
   width: number;
 }
 
+export type PixiRendererLifecycleState = "idle" | "mounting" | "building" | "committed" | "failed";
+
+export interface PixiRendererHealthSnapshot extends PixiRendererSnapshot {
+  canvasCssHeight: number;
+  canvasCssWidth: number;
+  canvasHeight: number;
+  canvasWidth: number;
+  committedWorldRevision: number;
+  lastCommitAt: number | null;
+  lastError: string | null;
+  lifecycleState: PixiRendererLifecycleState;
+  requestedWorldRevision: number;
+}
+
 export const PIXI_RENDERER_SCENE_CHANGE_EVENT = "map:pixi-renderer:scene-change";
 export const PIXI_RENDERER_ANIMATION_FRAME_EVENT = "map:pixi-renderer:animation-frame";
 export const PIXI_RENDERER_READY_EVENT = "map:pixi-renderer:ready";
@@ -62,25 +77,55 @@ let lastWorld: MapRenderWorld | null = null;
 let lastRendererStyle: ReturnType<typeof getMapRendererStyle> | null = null;
 const interactionOverlay = new MapInteractionOverlay();
 let viewportSyncFrameId: number | null = null;
+let lifecycleState: PixiRendererLifecycleState = "idle";
+let requestedWorldRevision = 0;
+let committedWorldRevision = 0;
+let lastCommitAt: number | null = null;
+let lastError: string | null = null;
 const CELL_ASSIGNMENT_LAYERS = new Set(["biomes", "cultures", "provinces", "religions", "states"]);
 
 function getRendererPreference(): "webgl" | "webgpu" {
   return new URLSearchParams(window.location.search).get("renderer") === "webgpu" ? "webgpu" : "webgl";
 }
 
-const activatePixiMap = (): void => {
+const getHealthSnapshot = (): PixiRendererHealthSnapshot | null => {
+  const snapshot = instance?.getSnapshot();
+  if (!snapshot) return null;
+  const canvas = document.querySelector<HTMLCanvasElement>("#pixi-map-renderer canvas");
+  const bounds = canvas?.getBoundingClientRect();
+  return {
+    ...snapshot,
+    canvasCssHeight: Math.round(bounds?.height ?? 0),
+    canvasCssWidth: Math.round(bounds?.width ?? 0),
+    canvasHeight: canvas?.height ?? 0,
+    canvasWidth: canvas?.width ?? 0,
+    committedWorldRevision,
+    lastCommitAt,
+    lastError,
+    lifecycleState,
+    requestedWorldRevision
+  };
+};
+
+const activatePixiMap = (revision: number): void => {
   removeLegacyRendererGroups();
   const map = document.getElementById("map");
   map?.classList.add("pixi-renderer-active");
   map?.style.setProperty("background-color", "transparent", "important");
-  window.dispatchEvent(new Event(PIXI_RENDERER_READY_EVENT));
+  document.getElementById("pixi-renderer-failure")?.remove();
+  committedWorldRevision = revision;
+  lastCommitAt = performance.now();
+  lastError = null;
+  lifecycleState = "committed";
+  window.dispatchEvent(
+    new CustomEvent(PIXI_RENDERER_READY_EVENT, { detail: { revision, snapshot: getHealthSnapshot() } })
+  );
 };
 
 const getInstance = async (): Promise<PixiMapRenderer> => {
   instancePromise ??= import("./pixi-map-renderer").then(({ PixiMapRenderer }) => {
     instance = new PixiMapRenderer({
       deviceMemoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
-      onFirstFrame: activatePixiMap,
       onSceneChange: dispatchSceneChange,
       preference: getRendererPreference(),
       recordPerformance: (name, duration) => window.MapPerformance?.record(name, duration),
@@ -109,10 +154,6 @@ const dispatchSceneChange = (kind: PixiSceneChangeKind): void => {
 const prepareSurface = (): HTMLElement => {
   const map = document.getElementById("map");
   if (!map) throw new Error("Cannot mount the Pixi renderer without #map");
-  // The SVG follows this absolutely-positioned surface in DOM order. Make its backdrop transparent as soon as the
-  // canvas is mounted, rather than waiting for the first render callback, so it cannot briefly cover Pixi with black.
-  map.classList.add("pixi-renderer-surface-ready");
-  map.style.setProperty("background-color", "transparent", "important");
   const surface = document.getElementById("pixi-map-renderer") ?? document.createElement("div");
   surface.id = "pixi-map-renderer";
   surface.style.pointerEvents = "none";
@@ -219,18 +260,31 @@ const getWorld = () => {
   return lastWorld;
 };
 
+const assertCommittedFrame = (renderer: PixiMapRenderer, expectedCells: number, previousCommit: number): void => {
+  const snapshot = renderer.getSnapshot();
+  const canvas = document.querySelector<HTMLCanvasElement>("#pixi-map-renderer canvas");
+  const issues = getRendererFrameIssues(
+    { ...snapshot, canvasHeight: canvas?.height ?? 0, canvasWidth: canvas?.width ?? 0 },
+    expectedCells,
+    previousCommit
+  );
+  if (issues.length) throw new Error(issues.join("; "));
+};
+
 const api: PixiRendererControllerApi = {
   clear: async () => {
     interactionOverlay.clear();
     lastWorld = null;
     lastRendererStyle = null;
+    lifecycleState = "idle";
+    lastError = null;
     await instance?.clear();
   },
   clearInteraction: () => interactionOverlay.clear(),
   createOverview: async (maxWidth, maxHeight) => (await instance?.createOverview(maxWidth, maxHeight)) ?? null,
   getCanvas: () => instance?.getCanvas() ?? null,
   getRasterCapabilities: () => instance?.getRasterCapabilities() ?? null,
-  getSnapshot: () => instance?.getSnapshot() ?? null,
+  getSnapshot: getHealthSnapshot,
   preload: async () => {
     await getInstance();
   },
@@ -267,41 +321,58 @@ const api: PixiRendererControllerApi = {
     lastRendererStyle = getMapRendererStyle(style);
     void instancePromise?.then(renderer => renderer.queueRender(getWorld(), lastRendererStyle!, { kind: "world" }));
   },
-  start: async () => {
-    if (!pack?.cells?.i?.length) return;
-    // Definitions only provide optional SVG-derived textures (relief, compass, and symbols). In particular Safari can
-    // leave the external definitions request pending while restoring a local page. Do not let that optional request
-    // prevent the core Pixi surface from ever mounting. Rebuild once they become available so temporary fallbacks
-    // are replaced by their intended assets.
-    const definitionsWereUnavailable = !document.getElementById("defElements");
-    const definitionsReady = svgDefinitionsReady.then(
-      () => Boolean(document.getElementById("defElements")),
-      error => {
-        console.warn("Reusable SVG definitions are unavailable", error);
-        return false;
-      }
-    );
-    hydrateLegacyPhysicalStyle(style);
-    if (!pack.relief?.length) Relief.generate();
-    const renderer = await getInstance();
-    const camera = getCamera();
-    renderer.setCamera(camera);
-    interactionOverlay.mount(document.getElementById("map") as unknown as SVGSVGElement, {
-      height: graphHeight,
-      width: graphWidth
-    });
-    interactionOverlay.setCamera(camera);
-    await renderer.mount(prepareSurface());
-    syncVisibility(renderer);
-    lastRendererStyle = getMapRendererStyle(style);
-    await renderer.render(getWorld(), lastRendererStyle, coalesceInvalidations([{ kind: "world" }]));
-    activatePixiMap();
-    if (definitionsWereUnavailable) {
-      void definitionsReady.then(available => {
-        if (!available || instance !== renderer) return;
-        lastRendererStyle = getMapRendererStyle(style);
-        renderer.queueRender(getWorld(), lastRendererStyle, { kind: "world" });
+  start: async (revision, isCurrent) => {
+    requestedWorldRevision = Math.max(requestedWorldRevision, revision);
+    lastError = null;
+    lifecycleState = "mounting";
+    try {
+      if (!pack?.cells?.i?.length || !isCurrent()) return false;
+      // Definitions only provide optional SVG-derived textures (relief, compass, and symbols). In particular Safari
+      // can leave the external definitions request pending while restoring a local page. Core geometry must not wait.
+      const definitionsWereUnavailable = !document.getElementById("defElements");
+      const definitionsReady = svgDefinitionsReady.then(
+        () => Boolean(document.getElementById("defElements")),
+        error => {
+          console.warn("Reusable SVG definitions are unavailable", error);
+          return false;
+        }
+      );
+      hydrateLegacyPhysicalStyle(style);
+      if (!pack.relief?.length) Relief.generate();
+      const renderer = await getInstance();
+      if (!isCurrent()) return false;
+      const camera = getCamera();
+      renderer.setCamera(camera);
+      interactionOverlay.mount(document.getElementById("map") as unknown as SVGSVGElement, {
+        height: graphHeight,
+        width: graphWidth
       });
+      interactionOverlay.setCamera(camera);
+      await renderer.mount(prepareSurface());
+      if (!isCurrent()) return false;
+      syncVisibility(renderer);
+      lastRendererStyle = getMapRendererStyle(style);
+      const world = getWorld();
+      const previousCommit = renderer.getSnapshot().commitSequence;
+      lifecycleState = "building";
+      await renderer.render(world, lastRendererStyle, coalesceInvalidations([{ kind: "world" }]));
+      if (!isCurrent()) return false;
+      assertCommittedFrame(renderer, world.cells.i.length, previousCommit);
+      activatePixiMap(revision);
+      if (definitionsWereUnavailable) {
+        void definitionsReady.then(available => {
+          if (!available || instance !== renderer || committedWorldRevision !== revision) return;
+          lastRendererStyle = getMapRendererStyle(style);
+          renderer.queueRender(getWorld(), lastRendererStyle, { kind: "world" });
+        });
+      }
+      return true;
+    } catch (error) {
+      if (isCurrent()) {
+        lifecycleState = "failed";
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+      throw error;
     }
   },
   whenCommitted: after => instance?.whenCommitted(after) ?? Promise.resolve(0),
@@ -335,6 +406,10 @@ export const syncPixiRendererViewport = syncViewport;
 export const getPixiMapPointAtClient = api.toMapPoint;
 export const updateMapInteractionOverlay = api.updateInteraction;
 export const pixiRendererController = api;
+export const reportPixiRendererFailure = (error: unknown): void => {
+  lifecycleState = "failed";
+  lastError = error instanceof Error ? error.message : String(error);
+};
 export const syncPixiRendererVisibility = (): void => {
   window.dispatchEvent(new Event(MAP_CONTENT_CHANGED_EVENT));
   void instancePromise?.then(syncVisibility);

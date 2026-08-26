@@ -618,7 +618,6 @@ describe("PixiMapRenderer lifecycle", () => {
   });
 
   it("renders synchronous map geometry before an optional texture resolves", async () => {
-    const onFirstFrame = vi.fn();
     const onSceneChange = vi.fn();
     let resolveTexture: ((texture: never) => void) | undefined;
     const delayedTexture = new Promise<never>(resolve => {
@@ -627,7 +626,7 @@ describe("PixiMapRenderer lifecycle", () => {
     applicationState.assetLoad
       .mockImplementationOnce(() => delayedTexture)
       .mockImplementation(() => Promise.resolve({ destroy: vi.fn(), height: 8, width: 8 }));
-    const renderer = new PixiMapRenderer({ onFirstFrame, onSceneChange });
+    const renderer = new PixiMapRenderer({ onSceneChange });
     const style = structuredClone(DEFAULT_PIXI_MAP_STYLE);
     style.texture.href = "delayed-texture.png";
     await renderer.mount(createSurface());
@@ -637,7 +636,7 @@ describe("PixiMapRenderer lifecycle", () => {
       0
     );
     expect(applicationState.stage?.children.find(child => child.label === "texture")?.children).toHaveLength(0);
-    expect(onFirstFrame).toHaveBeenCalledOnce();
+    expect(applicationState.render).toHaveBeenCalled();
     expect(onSceneChange).not.toHaveBeenCalled();
 
     resolveTexture?.({ destroy: vi.fn(), height: 8, width: 8 } as never);
