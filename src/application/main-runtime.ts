@@ -48,6 +48,7 @@ import {
 import { stored } from "@/utils/preferences";
 import { bindApplicationController } from "./application-controller";
 import { initializeApplicationState } from "./application-state";
+import { GenerationRunGuard } from "./generation-run-guard";
 import { endViewSession, startViewSession } from "./view-session-state";
 import { getViewportSurface, initializeViewportSurface } from "./viewport-surface";
 import {
@@ -456,7 +457,13 @@ void (function addDragToUpload() {
   });
 })();
 
-async function generate(config?: string | RegenerateOptions, reportMapMutation: boolean = true) {
+const generationRunGuard = new GenerationRunGuard();
+
+function generate(config?: string | RegenerateOptions, reportMapMutation: boolean = true): Promise<void> {
+  return generationRunGuard.run(() => generateCurrent(config, reportMapMutation));
+}
+
+async function generateCurrent(config?: string | RegenerateOptions, reportMapMutation: boolean = true) {
   let generationGroupOpen = false;
 
   try {
@@ -1130,6 +1137,10 @@ function showStatistics(reportMapMutation: boolean = true) {
 }
 
 const regenerateMap = debounce(async (config?: string | RegenerateOptions) => {
+  if (generationRunGuard.isRunning) {
+    tip("Map generation is already in progress", false, "warn");
+    return;
+  }
   WARN && console.warn("Generate new random map");
 
   const cellsDesired = Number(ensureEl<HTMLInputElement>("pointsInput").dataset.cells);

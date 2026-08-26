@@ -269,8 +269,18 @@ const api: PixiRendererControllerApi = {
   },
   start: async () => {
     if (!pack?.cells?.i?.length) return;
-    await svgDefinitionsReady;
-    if (!document.getElementById("defElements")) throw new Error("Reusable SVG definitions are unavailable");
+    // Definitions only provide optional SVG-derived textures (relief, compass, and symbols). In particular Safari can
+    // leave the external definitions request pending while restoring a local page. Do not let that optional request
+    // prevent the core Pixi surface from ever mounting. Rebuild once they become available so temporary fallbacks
+    // are replaced by their intended assets.
+    const definitionsWereUnavailable = !document.getElementById("defElements");
+    const definitionsReady = svgDefinitionsReady.then(
+      () => Boolean(document.getElementById("defElements")),
+      error => {
+        console.warn("Reusable SVG definitions are unavailable", error);
+        return false;
+      }
+    );
     hydrateLegacyPhysicalStyle(style);
     if (!pack.relief?.length) Relief.generate();
     const renderer = await getInstance();
@@ -286,6 +296,13 @@ const api: PixiRendererControllerApi = {
     lastRendererStyle = getMapRendererStyle(style);
     await renderer.render(getWorld(), lastRendererStyle, coalesceInvalidations([{ kind: "world" }]));
     activatePixiMap();
+    if (definitionsWereUnavailable) {
+      void definitionsReady.then(available => {
+        if (!available || instance !== renderer) return;
+        lastRendererStyle = getMapRendererStyle(style);
+        renderer.queueRender(getWorld(), lastRendererStyle, { kind: "world" });
+      });
+    }
   },
   whenCommitted: after => instance?.whenCommitted(after) ?? Promise.resolve(0),
   syncCamera: () => {

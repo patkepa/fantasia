@@ -17,8 +17,22 @@ window.MapRendererCommands = rendererCommands;
 // Fetch and parse Pixi while generation and the rest of application startup continue.
 void preloadPixiRenderer().catch(() => undefined);
 
+let startTask: Promise<void> | null = null;
+
 const scheduleStart = (): void => {
-  requestAnimationFrame(() => void pixiRendererController.start().catch(showRendererFailure));
+  if (startTask) return;
+  startTask = new Promise(resolve => requestAnimationFrame(resolve))
+    .then(() => pixiRendererController.start())
+    .catch(error => showRendererFailure(error))
+    .finally(() => {
+      startTask = null;
+    });
+};
+
+// Vite evaluates module scripts independently. If a generated map is already present by the time this loader finishes
+// evaluating, its one-off `map:generated` event has been missed and the Pixi surface would otherwise never mount.
+const startIfMapIsReady = (): void => {
+  if (typeof pack !== "undefined" && pack?.cells?.i?.length) scheduleStart();
 };
 
 export function showRendererFailure(error: unknown): void {
@@ -35,6 +49,9 @@ export function showRendererFailure(error: unknown): void {
 
 window.addEventListener("map:generated", scheduleStart);
 window.addEventListener("map:loaded", scheduleStart);
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startIfMapIsReady, { once: true });
+else startIfMapIsReady();
+window.addEventListener("load", startIfMapIsReady, { once: true });
 window.addEventListener(LAYER_CONTROLS_CHANGE_EVENT, () => {
   requestAnimationFrame(syncPixiRendererVisibility);
 });

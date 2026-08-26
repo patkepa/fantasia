@@ -456,4 +456,10 @@ describe("Pixi hard cutover", () => {
     expect(productionSources.includes("pixi-prototype-states")).toBe(false);
     expect(productionSources.includes("pixi-prototype-biomes")).toBe(false);
   });
+
+  it("does not block the initial Pixi frame on optional SVG definitions", () => {
+    expect(controllerSource.includes("await svgDefinitionsReady")).toBe(false);
+    expect(controllerSource.includes("Reusable SVG definitions are unavailable")).toBe(true);
+    expect(controllerSource.includes("definitionsReady.then(available")).toBe(true);
+  });
 });
