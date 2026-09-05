@@ -124,7 +124,9 @@ export function buildRetainedCellTopology(source: CellTopologySource): RetainedC
 
 export function getCellGeometryRange(topology: RetainedCellTopology, cellId: number): CellGeometryRange | undefined {
   const rangeIndex = topology.cellRangeIndices[cellId] ?? -1;
-  return rangeIndex < 0 ? undefined : topology.cellRanges[rangeIndex];
+  const range = rangeIndex < 0 ? undefined : topology.cellRanges[rangeIndex];
+  // Tiles share the lookup; the indexed range may belong to a different tile.
+  return range?.cellId === cellId ? range : undefined;
 }
 
 /**
@@ -150,7 +152,9 @@ export function getRetainedCellTopologyTiles(
     else rangesByTile.set(key, [range]);
   }
 
-  const tiles = [...rangesByTile.values()].map(ranges => buildTileTopology(topology, ranges));
+  // Each cell belongs to one tile, so all tiles can share its local range index.
+  const cellRangeIndices = new Int32Array(topology.cellRangeIndices.length).fill(-1);
+  const tiles = [...rangesByTile.values()].map(ranges => buildTileTopology(topology, ranges, cellRangeIndices));
   if (tileSize === RETAINED_CELL_TILE_SIZE) tileCache.set(topology, tiles);
   return tiles;
 }
@@ -195,14 +199,13 @@ function getBounds(vertexIds: readonly number[], points: CellTopologySource["ver
 
 function buildTileTopology(
   topology: RetainedCellTopology,
-  sourceRanges: readonly CellGeometryRange[]
+  sourceRanges: readonly CellGeometryRange[],
+  cellRangeIndices: Int32Array
 ): RetainedCellTopology {
   const vertexCount = sourceRanges.reduce((count, range) => count + range.vertexCount, 0);
   const triangleCount = sourceRanges.reduce((count, range) => count + range.triangleCount, 0);
   const positions = new Float32Array(vertexCount * 2);
   const indices = vertexCount > 65_535 ? new Uint32Array(triangleCount * 3) : new Uint16Array(triangleCount * 3);
-  const cellRangeIndices = new Int32Array(topology.cellRangeIndices.length);
-  cellRangeIndices.fill(-1);
   const cellRanges: CellGeometryRange[] = [];
   let bounds: SceneBounds | null = null;
   let vertexOffset = 0;

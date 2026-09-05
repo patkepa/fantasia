@@ -105,6 +105,11 @@ describe("buildRetainedCellTopology", () => {
     const tiles = getRetainedCellTopologyTiles(topology);
     expect(tiles).toHaveLength(2);
     expect(tiles.map(tile => tile.cellRanges.map(range => range.cellId).sort())).toEqual([[0], [1]]);
+    expect(tiles[0].cellRangeIndices).toBe(tiles[1].cellRangeIndices);
+    expect(getCellGeometryRange(tiles[0], 0)?.cellId).toBe(0);
+    expect(getCellGeometryRange(tiles[1], 1)?.cellId).toBe(1);
+    expect(getCellGeometryRange(tiles[0], 1)).toBeUndefined();
+    expect(getCellGeometryRange(tiles[1], 0)).toBeUndefined();
     expect(getRetainedCellTopologyTiles(topology)).toBe(tiles);
   });
 });

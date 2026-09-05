@@ -235,6 +235,7 @@ vi.mock("pixi.js", () => {
 import type { PackedGraph } from "@/types/PackedGraph";
 import { STATIC_VIEWER_WORLD } from "@/viewer/static-map-fixture";
 import { coalesceInvalidations } from "../core/invalidation";
+import { clearHighlight, highlight, type TradeAnimationSnapshot } from "../draw-trade-animation";
 import { DEFAULT_PIXI_MAP_STYLE } from "../scene/styles";
 import { PixiMapRenderer } from "./pixi-map-renderer";
 
@@ -279,6 +280,7 @@ describe("PixiMapRenderer lifecycle", () => {
   });
 
   afterEach(() => {
+    clearHighlight();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -298,6 +300,42 @@ describe("PixiMapRenderer lifecycle", () => {
     renderer.destroy();
     expect(applicationState.destroy).toHaveBeenCalledOnce();
     expect(renderer.getSnapshot()).toMatchObject({ enabled: false, resourceBytes: 0, resourceCount: 0 });
+  });
+
+  it("retains trade highlight geometry between frames and refreshes it after edits and rebuilds", async () => {
+    const renderer = new PixiMapRenderer();
+    await renderer.mount(createSurface());
+    const style = structuredClone(DEFAULT_PIXI_MAP_STYLE);
+    await renderer.render(createWorld(), style, coalesceInvalidations([{ kind: "world" }]));
+    const tradeLayer = () => applicationState.stage?.children.find(child => child.label === "trade");
+    highlight([
+      [0, 0],
+      [10, 10]
+    ]);
+    const first = tradeLayer()?.children[0];
+    expect(first).toMatchObject({ label: "trade:highlight" });
+    const internals = renderer as unknown as {
+      renderTradeSnapshot: (snapshot: TradeAnimationSnapshot) => void;
+      tradeSnapshot: TradeAnimationSnapshot;
+    };
+    internals.renderTradeSnapshot({ ...internals.tradeSnapshot, markers: [] });
+    expect(tradeLayer()?.children[0]).toBe(first);
+
+    highlight([
+      [0, 0],
+      [20, 20]
+    ]);
+    const edited = tradeLayer()?.children[0];
+    expect(edited).not.toBe(first);
+    expect(tradeLayer()?.children).toHaveLength(1);
+
+    style.trade.highlight.color = "#ff0000";
+    await renderer.render(createWorld(), style, coalesceInvalidations([{ kind: "style", layer: "trade" }]));
+    expect(tradeLayer()?.children[0]).toMatchObject({ label: "trade:highlight" });
+    expect(tradeLayer()?.children[0]).not.toBe(edited);
+    clearHighlight();
+    expect(tradeLayer()?.children).toHaveLength(0);
+    renderer.destroy();
   });
 
   it("supports destroy and remount without duplicating runtime state", async () => {

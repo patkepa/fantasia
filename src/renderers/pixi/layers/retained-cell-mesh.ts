@@ -7,7 +7,11 @@ import {
   createCellFillColorResolver,
   updateCellFillAttributes
 } from "../../scene/layers/cell-fill-attributes";
-import { getRetainedCellTopologyTiles, type RetainedCellTopology } from "../../scene/layers/retained-cell-topology";
+import {
+  getCellGeometryRange,
+  getRetainedCellTopologyTiles,
+  type RetainedCellTopology
+} from "../../scene/layers/retained-cell-topology";
 
 const vertex = /* glsl */ `
   in vec2 aPosition;
@@ -130,7 +134,7 @@ export class RetainedCellMesh {
 
     for (const tile of this.tiles) {
       const matchingIds = shouldScanRequestedIds
-        ? ids.filter(cellId => (tile.topology.cellRangeIndices[cellId] ?? -1) >= 0)
+        ? ids.filter(cellId => getCellGeometryRange(tile.topology, cellId) !== undefined)
         : tile.topology.cellRanges.filter(range => requested!.has(range.cellId)).map(range => range.cellId);
       if (!matchingIds.length) continue;
       const update = updateCellFillAttributes(

@@ -377,6 +377,10 @@ export class PixiMapRenderer implements MapRenderer {
   private topologyRevision = 0;
   private tradeContainer: Container | null = null;
   private tradeDisplays = new Map<number, Container>();
+  private tradeHighlights = new WeakMap<
+    Container,
+    { graphic: Graphics | null; points: TradeAnimationSnapshot["highlight"]; style: MapStyle["trade"]["highlight"] }
+  >();
   private tradeSnapshot: TradeAnimationSnapshot = { highlight: null, markers: [] };
   private tradeTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private tradeTextures = new Map<TradeMarkerType, Texture>();
@@ -2381,17 +2385,23 @@ export class PixiMapRenderer implements MapRenderer {
     }
     for (const marker of snapshot.markers) this.syncTradeMarker(container, marker);
 
-    const previousHighlight = container.children.find(child => child.label === "trade:highlight");
-    previousHighlight?.removeFromParent();
-    previousHighlight?.destroy();
+    const previousHighlight = this.tradeHighlights.get(container);
+    const style = this.semanticStyle.trade.highlight;
+    if (previousHighlight?.points === snapshot.highlight && previousHighlight.style === style) return;
+    if (previousHighlight?.graphic) {
+      container.removeChild(previousHighlight.graphic);
+      previousHighlight.graphic.destroy();
+    }
+    let highlight: Graphics | null = null;
     if (snapshot.highlight && snapshot.highlight.length > 1) {
-      const highlight = createLineGraphic(
+      highlight = createLineGraphic(
         [{ domainId: "trade-highlight", points: [...snapshot.highlight], role: "highlight" }],
-        this.semanticStyle.trade.highlight
+        style
       );
       highlight.label = "trade:highlight";
       container.addChildAt(highlight, 0);
     }
+    this.tradeHighlights.set(container, { graphic: highlight, points: snapshot.highlight, style });
   }
 
   private syncTradeMarker(container: Container, marker: TradeAnimationMarker): void {

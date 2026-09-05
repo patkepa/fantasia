@@ -125,6 +125,47 @@ describe("getDealBatches", () => {
 // ─── getPath ─────────────────────────────────────────────────────────────────
 
 describe("getPath", () => {
+  it("resets visited states across early exits, failed searches, and route edits", () => {
+    globalThis.pack = makePack({ 0: { 1: 0, 2: 0 }, 1: { 0: 0 }, 2: { 0: 0 } }, [{ i: 0, group: "roads" }]) as any;
+    expect(ta.findRoutePath(0, 1)?.points).toEqual([
+      [0, 0],
+      [10, 0]
+    ]);
+    expect(ta.findRoutePath(1, 2)?.points).toEqual([
+      [10, 0],
+      [0, 0],
+      [20, 0]
+    ]);
+    expect(ta.findRoutePath(0, 3)).toBeNull();
+    pack.cells.routes[2][3] = 0;
+    expect(ta.findRoutePath(1, 3)?.points).toEqual([
+      [10, 0],
+      [0, 0],
+      [20, 0],
+      [30, 0]
+    ]);
+    pack.routes[0].group = "searoutes";
+    expect(ta.findRoutePath(0, 1)?.segments[0].type).toBe("water");
+    ta.stop();
+    expect(ta.findRoutePath(0, 1)?.points).toEqual([
+      [0, 0],
+      [10, 0]
+    ]);
+  });
+
+  it("resizes search buffers when the world cell count changes", () => {
+    globalThis.pack = makePack({ 0: { 1: 0 } }, [{ i: 0, group: "roads" }]) as any;
+    expect(ta.findRoutePath(0, 1)).not.toBeNull();
+    pack.cells.h = new Uint8Array(5);
+    pack.cells.p[4] = [40, 0];
+    pack.cells.routes[1] = { 4: 0 };
+    expect(ta.findRoutePath(0, 4)?.points).toEqual([
+      [0, 0],
+      [10, 0],
+      [40, 0]
+    ]);
+  });
+
   it("returns null when a burg does not exist", () => {
     expect(ta.getPath({ id: "1-99", deals: [], startBurgId: 1, endBurgId: 99, type: "local" })).toBeNull();
   });

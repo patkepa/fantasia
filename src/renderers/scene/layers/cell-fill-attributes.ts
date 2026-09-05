@@ -1,4 +1,4 @@
-import type { RetainedCellTopology } from "./retained-cell-topology";
+import { getCellGeometryRange, type RetainedCellTopology } from "./retained-cell-topology";
 
 export interface CellFillAttributeSource {
   assignments: ArrayLike<number>;
@@ -36,8 +36,7 @@ export function updateCellFillAttributes(
   let lastVertex = -1;
 
   for (const cellId of cellIds) {
-    const rangeIndex = topology.cellRangeIndices[cellId] ?? -1;
-    const range = rangeIndex < 0 ? undefined : topology.cellRanges[rangeIndex];
+    const range = getCellGeometryRange(topology, cellId);
     if (!range) continue;
     writeCellColor(attributes, range.vertexOffset, range.vertexCount, cellId, colorResolver);
     firstVertex = Math.min(firstVertex, range.vertexOffset);

@@ -1,3 +1,4 @@
+import { bisectLeft } from "d3";
 import { quadtree } from "d3-quadtree";
 import type { BurgGroup } from "@/types/burg-groups";
 import { each, ensureEl, findClosestCell, gauss, minmax, normalize, P, rn } from "../utils";
@@ -515,7 +516,10 @@ class BurgModule {
       }
 
       if (group.percentile) {
-        const index = populations.indexOf(burg.population as number);
+        const population = burg.population as number;
+        const insertionIndex = bisectLeft(populations, population);
+        const index =
+          insertionIndex < populations.length && populations[insertionIndex] === population ? insertionIndex : -1;
         const isFit = index >= Math.floor((populations.length * group.percentile) / 100);
         if (!isFit) continue;
       }
