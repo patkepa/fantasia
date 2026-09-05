@@ -16,7 +16,12 @@ describe("component startup order", () => {
     expect(componentsIndexSource.includes('window.addEventListener("load", loadWorkspace')).toBe(false);
   });
 
-  it("keeps the supporter catalog with the deferred options runtime", () => {
+  it("loads generation options eagerly so startup can select a heightmap before generating", () => {
+    expect(componentsIndexSource.includes('import "./options/options-runtime";')).toBe(true);
+    expect(componentsIndexSource.includes('import("./options/options-runtime")')).toBe(false);
+  });
+
+  it("keeps the supporter catalog with the options runtime", () => {
     expect(optionsRuntimeSource.includes('from "@/data/supporters"')).toBe(true);
   });
 

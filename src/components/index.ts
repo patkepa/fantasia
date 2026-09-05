@@ -7,6 +7,8 @@ import "./zoom";
 import "./viewbox-events";
 import "./tools";
 import "./hotkeys";
+// Startup restores preferences and selects the heightmap through this runtime before generation can begin.
+import "./options/options-runtime";
 import { destroyDialog, updateDialog } from "./dialog/dialog-helpers";
 import { initializeLayerControlsRuntime } from "./layers/layer-controls-runtime";
 import { mountOptionsPanel } from "./options/options-panel";
@@ -42,11 +44,8 @@ const loadWorkspace = () => void import("./workspace-sidebar");
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", loadWorkspace, { once: true });
 else loadWorkspace();
 
-// These runtimes only bind editor dialogs and controls. Deferring their module evaluation keeps map generation and the
-// first Pixi frame ahead of UI code that is not needed until the user opens an editor.
-const loadEditorRuntimes = () =>
-  Promise.all([import("./options/options-runtime"), import("./style/style-editor-loader")]);
-const scheduleEditorRuntimes = () => void loadEditorRuntimes();
+// The style editor is not needed until the user opens it; generation options above are required during startup.
+const scheduleEditorRuntimes = () => void import("./style/style-editor-loader");
 const requestIdle = (window as Partial<Window>).requestIdleCallback;
 if (requestIdle) requestIdle.call(window, scheduleEditorRuntimes, { timeout: 1_500 });
 else window.setTimeout(scheduleEditorRuntimes, 250);
