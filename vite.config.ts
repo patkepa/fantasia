@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
+import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
 const indexPath = fileURLToPath(new URL("./src/index.html", import.meta.url));
@@ -37,7 +38,7 @@ export default defineConfig({
     emptyOutDir: true,
     outDir: "../dist"
   },
-  plugins: [externalizeSvgDefinitions()],
+  plugins: [react({ compiler: true }), externalizeSvgDefinitions()],
   publicDir: "../public",
   resolve: {
     alias: {
