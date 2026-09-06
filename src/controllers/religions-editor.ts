@@ -1,4 +1,4 @@
-import { drag, select } from "d3";
+import { select } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog, updateDialog } from "@/components/dialog/dialog-helpers";
 import { applyLineHighlighting } from "@/components/dialog/highlighting";
 import { bindColumnSorting, sortDataByColumns } from "@/components/dialog/sorting";
@@ -8,14 +8,14 @@ import {
   initEditorTable,
   renderEditorHeader,
   renderEditorPagination,
-  setModeHiddenColumns,
   type TableView
 } from "@/components/dialog/table";
-import { clearMainTip, showMainTip, tip } from "@/components/tooltips";
+import { clearMainTip, tip } from "@/components/tooltips";
 import { showDomDialog } from "@/components/ui/dom-dialog";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
 import { moveTerritoryCenter } from "@/controllers/editor-mutations";
+import { enterTerritoryBrush } from "@/controllers/territory-brush";
 import { selectTerritoryEditorRow, TerritoryAssignmentSession } from "@/controllers/territory-editor-utils";
 import type { Religion } from "@/generators/religions-generator";
 import { clearLegend, drawLegend } from "@/renderers/draw-legend";
@@ -23,17 +23,17 @@ import {
   MAP_INTERACTION_HANDLE_EVENT,
   type MapInteractionHandleEventDetail
 } from "@/renderers/interaction/map-interaction-overlay";
-import { moveCircle, removeCircle } from "@/renderers/overlays/brush-circle";
 import {
   clearMapInteractionOverlay,
   getPixiMapPointAtClient,
   updateMapInteractionOverlay
 } from "@/renderers/pixi/pixi-renderer-controller";
 import { downloadFile, getArea, getAreaUnit, getFileName } from "@/utils";
-import { abbreviate, debounce, ensureEl, findAllCellsInRadius, isLand, rn, si } from "../utils";
+import { abbreviate, debounce, ensureEl, rn, si } from "../utils";
 
 let selectedReligionId: number | null = null;
 let religionsAssignment: TerritoryAssignmentSession | null = null;
+let releaseReligionBrush: (() => void) | null = null;
 let activeReligionCenter: { initialCell: number; religionId: number } | null = null;
 
 const dialogId = "religionsEditor" as const;
@@ -823,39 +823,23 @@ function toggleExtinct(): void {
 }
 
 function enterReligionsManualAssignent(): void {
+  if (religionsAssignment) return;
   if (!window.LayerControls.isLayerOn("toggleReligions")) window.LayerControls.toggleLayer("toggleReligions");
   customization = 7;
   religionsAssignment = new TerritoryAssignmentSession("religions", pack.cells.religion);
-  document.querySelectorAll<HTMLElement>("#religionsBottom > *").forEach(el => {
-    el.style.display = "none";
-  });
-  ensureEl("religionsManuallyButtons").style.display = "inline-block";
-  updateMapInteractionOverlay({ handles: [] });
-
-  setModeHiddenColumns(
+  releaseReligionBrush = enterTerritoryBrush({
+    domain: "religions",
     dialogId,
-    columns.filter(column => !column.permanent).map(column => column.key)
-  );
-  ensureEl("religionsFooter").style.display = "none";
-  ensureEl("religionsBody")
-    .querySelectorAll<HTMLElement>("div > input, select, span, svg")
-    .forEach(e => {
-      e.style.pointerEvents = "none";
-    });
-  updateDialog(dialogId, { position });
-
-  tip("Click on religion to select, drag the circle to change religion", true);
-  select<SVGElement, unknown>("#viewbox")
-    .style("cursor", "crosshair")
-    .on("click", selectReligionOnMapClick)
-    .call(drag<SVGElement, unknown>().on("start", dragReligionBrush))
-    .on("touchmove mousemove", moveReligionBrush);
-
-  const firstLine = ensureEl("religionsBody").querySelector<HTMLElement>(".states");
-  if (firstLine) {
-    firstLine.classList.add("selected");
-    selectedReligionId = +firstLine.dataset.id!;
-  }
+    position,
+    hiddenColumns: columns.filter(column => !column.permanent).map(column => column.key),
+    restoredColumns: () => [],
+    graph: pack,
+    assignment: religionsAssignment,
+    onSelect: id => {
+      selectedReligionId = id;
+    },
+    onPaint: changeReligionForSelection
+  });
 }
 
 function selectReligionOnLineClick(this: HTMLElement): void {
@@ -864,38 +848,6 @@ function selectReligionOnLineClick(this: HTMLElement): void {
   selectedReligionId = +this.dataset.id!;
 }
 
-function selectReligionOnMapClick(this: SVGElement, event: MouseEvent): void {
-  const point = getPixiMapPointAtClient(event.clientX, event.clientY);
-  if (!point) return;
-  const i = findCell(point.x, point.y);
-  if (pack.cells.h[i!] < 20) return;
-
-  const religion = religionsAssignment?.get(i!) ?? pack.cells.religion[i!];
-
-  const body = ensureEl("religionsBody");
-  selectedReligionId = religion;
-  // row may be on another page; the class re-applies on render if/when that page is shown
-  selectTerritoryEditorRow(body, body.querySelector(`div[data-id='${religion}']`));
-}
-
-function dragReligionBrush(this: any, event: any): void {
-  const radius = +ensureEl<HTMLInputElement>("religionsBrush").value;
-  religionsAssignment?.beginStroke();
-
-  event.on("drag", (dragEvent: any) => {
-    if (!dragEvent.dx && !dragEvent.dy) return;
-    const point = getTerritoryMapPoint(dragEvent);
-    if (!point) return;
-    const { x, y } = point;
-    moveCircle(x, y, radius);
-
-    const found = radius > 5 ? findAllCellsInRadius(x, y, radius, pack) : [findCell(x, y, radius)];
-    const selection = found.filter((i): i is number => i !== undefined && isLand(i, pack));
-    if (selection.length) changeReligionForSelection(selection);
-  });
-}
-
-// change religion within selection
 function changeReligionForSelection(selection: number[]): void {
   if (selectedReligionId === null) return;
 
@@ -903,14 +855,6 @@ function changeReligionForSelection(selection: number[]): void {
   const cells = preventOverwrite ? selection.filter(cellId => !religionsAssignment?.get(cellId)) : selection;
   const mutation = religionsAssignment?.paint(cells, selectedReligionId);
   if (mutation?.changed) window.LayerControls.redrawLayer("toggleReligions");
-}
-
-function moveReligionBrush(this: SVGElement, event: MouseEvent): void {
-  showMainTip();
-  const point = getPixiMapPointAtClient(event.clientX, event.clientY);
-  if (!point) return;
-  const radius = +ensureEl<HTMLInputElement>("religionsBrush").value;
-  moveCircle(point.x, point.y, radius);
 }
 
 function applyReligionsManualAssignent(): void {
@@ -931,27 +875,13 @@ function exitReligionsManualAssignment(close?: string): void {
     religionsAssignment = null;
     window.LayerControls.redrawLayer("toggleReligions");
   }
-  removeCircle();
-  document.querySelectorAll<HTMLElement>("#religionsBottom > *").forEach(el => {
-    el.style.display = "inline-block";
-  });
-  ensureEl("religionsManuallyButtons").style.display = "none";
-
-  setModeHiddenColumns(dialogId, []);
-  ensureEl("religionsFooter").style.display = "block";
-  ensureEl("religionsBody")
-    .querySelectorAll<HTMLElement>("div > input, select, span, svg")
-    .forEach(e => {
-      e.style.removeProperty("pointer-events");
-    });
-  if (!close) updateDialog(dialogId, { position });
-
-  if (!close) drawReligionCenters();
-  applyDefaultViewboxEvents();
-  clearMainTip();
-  const $selected = ensureEl("religionsBody").querySelector("div.selected");
-  if ($selected) $selected.classList.remove("selected");
+  releaseReligionBrush?.();
+  releaseReligionBrush = null;
   selectedReligionId = null;
+  if (!close) {
+    updateDialog(dialogId, { position });
+    drawReligionCenters();
+  }
 }
 
 function enterAddReligionMode(this: HTMLElement): void {
@@ -1037,14 +967,6 @@ function downloadReligionsCsv(): void {
 
   const name = `${getFileName("Religions")}.csv`;
   downloadFile(csvData, name);
-}
-
-function getTerritoryMapPoint(event: any): { x: number; y: number } | null {
-  const source = event.sourceEvent ?? event;
-  const touch = source.touches?.[0] ?? source.changedTouches?.[0];
-  const clientX = touch?.clientX ?? source.clientX;
-  const clientY = touch?.clientY ?? source.clientY;
-  return Number.isFinite(clientX) && Number.isFinite(clientY) ? getPixiMapPointAtClient(clientX, clientY) : null;
 }
 
 function updateReligionHighlight(religionId: number): void {

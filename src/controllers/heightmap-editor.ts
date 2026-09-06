@@ -7,11 +7,16 @@ import { LayerControls } from "@/components/layers/layer-controls";
 import { clearMainTip, showMainTip, tip } from "@/components/tooltips";
 import { showDomDialog } from "@/components/ui/dom-dialog";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
-import { getCultureGenerationSettings } from "@/controllers/culture-generation-settings";
+import {
+  getCultureGenerationSettings,
+  getCulturePlacementSettings,
+  showCultureGenerationWarnings
+} from "@/controllers/culture-generation-settings";
 import { commitHeightValues } from "@/controllers/editor-mutations";
 import { HeightmapHistory } from "@/controllers/heightmap-history";
 import { getStateExpansionSettings } from "@/controllers/state-generation-settings";
 import { heightmapTemplates } from "@/data/heightmap-templates";
+import { Cultures } from "@/generators/cultures-generator";
 import { WorldGenerationController } from "@/generators/world-generation-controller";
 import { renderBurgRemoved } from "@/renderers/burg-mutations";
 import { drawFeatures } from "@/renderers/draw-features";
@@ -553,7 +558,7 @@ function regenerateErasedData(): void {
   Goods.generate();
 
   WorldGenerationController.rankCells();
-  Cultures.generate();
+  showCultureGenerationWarnings(Cultures.generate(getCulturePlacementSettings()));
   Cultures.expand(getCultureGenerationSettings());
 
   Burgs.generate();

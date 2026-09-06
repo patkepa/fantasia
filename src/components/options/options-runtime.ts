@@ -10,6 +10,7 @@ import { enableElementDragging } from "@/components/element-dragging";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { showDomDialog } from "@/components/ui/dom-dialog";
 import { supporters } from "@/data/supporters";
+import { Cultures } from "@/generators/cultures-generator";
 import { fitLegendBox } from "@/renderers/draw-legend";
 import { fitScaleBar } from "@/renderers/draw-scalebar";
 import { getUnitSettings } from "@/services/units-settings";

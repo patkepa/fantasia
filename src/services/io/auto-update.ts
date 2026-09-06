@@ -2,6 +2,7 @@
 import { color, min, select } from "d3";
 import { CUSTOM_STYLE_PRESET_PREFIX } from "@/components/style/style-preset-constants";
 import { RELIEF_SETS } from "@/data/relief-icons";
+import { Cultures } from "@/generators/cultures-generator";
 import type { Label, LabelNameMode } from "@/generators/labels-generator";
 import { ensureMeasurerIds, type Measurer, type MeasurerType } from "@/generators/measurers-generator";
 import { ensureReliefIconIds } from "@/generators/relief-generator";

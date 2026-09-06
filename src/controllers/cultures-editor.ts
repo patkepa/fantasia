@@ -1,4 +1,4 @@
-import { csvParse, drag, select } from "d3";
+import { csvParse, select } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog, updateDialog } from "@/components/dialog/dialog-helpers";
 import { applyLineHighlighting } from "@/components/dialog/highlighting";
 import { bindColumnSorting, sortDataByColumns } from "@/components/dialog/sorting";
@@ -12,31 +12,32 @@ import {
   type TableView
 } from "@/components/dialog/table";
 import type { FillBoxElement } from "@/components/fill-box";
-import { clearMainTip, showMainTip, tip } from "@/components/tooltips";
+import { clearMainTip, tip } from "@/components/tooltips";
 import { showDomDialog } from "@/components/ui/dom-dialog";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
-import { getCultureGenerationSettings } from "@/controllers/culture-generation-settings";
+import { getCultureGenerationSettings, getCulturePlacementSettings } from "@/controllers/culture-generation-settings";
 import { moveTerritoryCenter } from "@/controllers/editor-mutations";
+import { enterTerritoryBrush } from "@/controllers/territory-brush";
 import { selectTerritoryEditorRow, TerritoryAssignmentSession } from "@/controllers/territory-editor-utils";
-import { CULTURE_TYPES, type Culture } from "@/generators/cultures-generator";
+import { CULTURE_TYPES, type Culture, Cultures } from "@/generators/cultures-generator";
 import { clearLegend, drawLegend } from "@/renderers/draw-legend";
 import {
   MAP_INTERACTION_HANDLE_EVENT,
   type MapInteractionHandleEventDetail
 } from "@/renderers/interaction/map-interaction-overlay";
 import { drawLabels } from "@/renderers/labels/labels-renderer";
-import { moveCircle, removeCircle } from "@/renderers/overlays/brush-circle";
 import {
   clearMapInteractionOverlay,
   getPixiMapPointAtClient,
   updateMapInteractionOverlay
 } from "@/renderers/pixi/pixi-renderer-controller";
 import { downloadFile, getArea, getAreaUnit, getFileName } from "@/utils";
-import { abbreviate, capitalize, debounce, ensureEl, findAllCellsInRadius, isLand, ra, rn, si } from "../utils";
+import { abbreviate, capitalize, debounce, ensureEl, ra, rn, si } from "../utils";
 
 let selectedCultureId: number | null = null;
 let culturesAssignment: TerritoryAssignmentSession | null = null;
+let releaseCultureBrush: (() => void) | null = null;
 let activeCultureCenter: { cultureId: number; initialCell: number } | null = null;
 
 const dialogId = "culturesEditor" as const;
@@ -898,39 +899,23 @@ function recalculateCultures(force?: boolean): void {
 }
 
 function enterCultureManualAssignent(): void {
+  if (culturesAssignment) return;
   if (!window.LayerControls.isLayerOn("toggleCultures")) window.LayerControls.toggleLayer("toggleCultures");
   customization = 4;
   culturesAssignment = new TerritoryAssignmentSession("cultures", pack.cells.culture);
-  document.querySelectorAll<HTMLElement>("#culturesBottom > *").forEach(el => {
-    el.style.display = "none";
-  });
-  ensureEl("culturesManuallyButtons").style.display = "inline-block";
-  updateMapInteractionOverlay({ handles: [] });
-
-  setModeHiddenColumns(
+  releaseCultureBrush = enterTerritoryBrush({
+    domain: "cultures",
     dialogId,
-    columns.filter(column => !column.permanent).map(column => column.key)
-  );
-  ensureEl("culturesFooter").style.display = "none";
-  ensureEl("culturesBody")
-    .querySelectorAll<HTMLElement>("div > input, select, span, svg")
-    .forEach(e => {
-      e.style.pointerEvents = "none";
-    });
-  updateDialog(dialogId, { position });
-
-  tip("Click on culture to select, drag the circle to change culture", true);
-  select<SVGElement, unknown>("#viewbox")
-    .style("cursor", "crosshair")
-    .on("click", selectCultureOnMapClick)
-    .call(drag<SVGElement, unknown>().on("start", dragCultureBrush))
-    .on("touchmove mousemove", moveCultureBrush);
-
-  const firstLine = ensureEl("culturesBody").querySelector<HTMLElement>(":scope > div.states");
-  if (firstLine) {
-    firstLine.classList.add("selected");
-    selectedCultureId = +firstLine.dataset.id!;
-  }
+    position,
+    hiddenColumns: columns.filter(column => !column.permanent).map(column => column.key),
+    restoredColumns: () => (canSelectCultureEmblemShape() ? [] : ["emblems"]),
+    graph: pack,
+    assignment: culturesAssignment,
+    onSelect: id => {
+      selectedCultureId = id;
+    },
+    onPaint: changeCultureForSelection
+  });
 }
 
 function selectCultureOnLineClick(this: HTMLElement): void {
@@ -939,50 +924,11 @@ function selectCultureOnLineClick(this: HTMLElement): void {
   selectedCultureId = +this.dataset.id!;
 }
 
-function selectCultureOnMapClick(this: SVGElement, event: MouseEvent): void {
-  const point = getPixiMapPointAtClient(event.clientX, event.clientY);
-  if (!point) return;
-  const i = findCell(point.x, point.y);
-  if (pack.cells.h[i!] < 20) return;
-
-  const culture = culturesAssignment?.get(i!) ?? pack.cells.culture[i!];
-
-  const body = ensureEl("culturesBody");
-  selectedCultureId = culture;
-  // row may be on another page; the class re-applies on render if/when that page is shown
-  selectTerritoryEditorRow(body, body.querySelector(`div[data-id='${culture}']`));
-}
-
-function dragCultureBrush(this: any, event: any): void {
-  const radius = +ensureEl<HTMLInputElement>("culturesBrush").value;
-  culturesAssignment?.beginStroke();
-
-  event.on("drag", (dragEvent: any) => {
-    if (!dragEvent.dx && !dragEvent.dy) return;
-    const point = getTerritoryMapPoint(dragEvent);
-    if (!point) return;
-    moveCircle(point.x, point.y, radius);
-
-    const found =
-      radius > 5 ? findAllCellsInRadius(point.x, point.y, radius, pack) : [findCell(point.x, point.y, radius)];
-    const selection = found.filter((i): i is number => i !== undefined && isLand(i, pack));
-    if (selection.length) changeCultureForSelection(selection);
-  });
-}
-
 function changeCultureForSelection(selection: number[]): void {
   if (selectedCultureId === null) return;
 
   const mutation = culturesAssignment?.paint(selection, selectedCultureId);
   if (mutation?.changed) window.LayerControls.redrawLayer("toggleCultures");
-}
-
-function moveCultureBrush(this: SVGElement, event: MouseEvent): void {
-  showMainTip();
-  const point = getPixiMapPointAtClient(event.clientX, event.clientY);
-  if (!point) return;
-  const radius = +ensureEl<HTMLInputElement>("culturesBrush").value;
-  moveCircle(point.x, point.y, radius);
 }
 
 function applyCultureManualAssignent(): void {
@@ -1006,27 +952,13 @@ function exitCulturesManualAssignment(close?: string): void {
     culturesAssignment = null;
     window.LayerControls.redrawLayer("toggleCultures");
   }
-  removeCircle();
-  document.querySelectorAll<HTMLElement>("#culturesBottom > *").forEach(el => {
-    el.style.display = "inline-block";
-  });
-  ensureEl("culturesManuallyButtons").style.display = "none";
-
-  setModeHiddenColumns(dialogId, canSelectCultureEmblemShape() ? [] : ["emblems"]);
-  ensureEl("culturesFooter").style.display = "block";
-  ensureEl("culturesBody")
-    .querySelectorAll<HTMLElement>("div > input, select, span, svg")
-    .forEach(e => {
-      e.style.removeProperty("pointer-events");
-    });
-  if (!close) updateDialog(dialogId, { position });
-
-  if (!close) drawCultureCenters();
-  applyDefaultViewboxEvents();
-  clearMainTip();
-  const selected = ensureEl("culturesBody").querySelector("div.selected");
-  if (selected) selected.classList.remove("selected");
+  releaseCultureBrush?.();
+  releaseCultureBrush = null;
   selectedCultureId = null;
+  if (!close) {
+    updateDialog(dialogId, { position });
+    drawCultureCenters();
+  }
 }
 
 function canSelectCultureEmblemShape(): boolean {
@@ -1036,14 +968,6 @@ function canSelectCultureEmblemShape(): boolean {
 
 function undoCulturesManualAssignment(): void {
   if (culturesAssignment?.undo()) window.LayerControls.redrawLayer("toggleCultures");
-}
-
-function getTerritoryMapPoint(event: any): { x: number; y: number } | null {
-  const source = event.sourceEvent ?? event;
-  const touch = source.touches?.[0] ?? source.changedTouches?.[0];
-  const clientX = touch?.clientX ?? source.clientX;
-  const clientY = touch?.clientY ?? source.clientY;
-  return Number.isFinite(clientX) && Number.isFinite(clientY) ? getPixiMapPointAtClient(clientX, clientY) : null;
 }
 
 function enterAddCulturesMode(this: HTMLElement): void {
@@ -1093,7 +1017,7 @@ function addCulture(this: SVGElement, event: MouseEvent): void {
   }
 
   if (event.shiftKey === false) exitAddCultureMode();
-  Cultures.add(center, getCultureGenerationSettings());
+  Cultures.add(center, getCulturePlacementSettings());
 
   drawCultureCenters();
   culturesTable.refresh();

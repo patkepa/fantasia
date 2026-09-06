@@ -112,6 +112,7 @@ import {
   type GlyphAtlasHandle,
   selectLabelAtlasResolution
 } from "./glyph-atlas-cache";
+import { PixiEmblemLayer } from "./layers/emblem-layer";
 import { RetainedCellMesh } from "./layers/retained-cell-mesh";
 import { MapPickingIndex, type MapPickSceneSources } from "./map-picking-index";
 
@@ -203,12 +204,6 @@ interface LabelGroupDisplay {
   maxScale: number | null;
   minScale: number | null;
   showAll: boolean;
-}
-
-interface EmblemGroupDisplay {
-  automaticVisibility: boolean;
-  baseSize: number;
-  container: Container;
 }
 
 interface CoordinateGroupDisplay {
@@ -345,9 +340,7 @@ export class PixiMapRenderer implements MapRenderer {
   private labelDisplays: LabelDisplay[] = [];
   private labelGroupDisplays: LabelGroupDisplay[] = [];
   private labelResizeOnZoom = true;
-  private emblemGroupDisplays: EmblemGroupDisplay[] = [];
-  private emblemSourceCache = new Map<string, Promise<string | null>>();
-  private emblemTextureHandles = new Set<RendererResourceHandle<Texture>>();
+  private emblemLayer = new PixiEmblemLayer();
   private glyphAtlasCache: GlyphAtlasCache;
   private glyphBudgetBytes: number;
   private glyphAtlasHandles = new Set<RendererResourceHandle<GlyphAtlasDescriptor>>();
@@ -746,7 +739,7 @@ export class PixiMapRenderer implements MapRenderer {
     this.qualityMode = "settled";
     this.scheduler?.clear();
     this.clearStage();
-    this.emblemSourceCache.clear();
+    this.emblemLayer.clear();
     this.glyphAtlasCache.clear();
     this.pickingIndex.clear();
     this.textureCache.clear();
@@ -770,7 +763,7 @@ export class PixiMapRenderer implements MapRenderer {
     this.tradeSubscriptionRelease?.();
     this.tradeSubscriptionRelease = null;
     this.clearStage();
-    this.emblemSourceCache.clear();
+    this.emblemLayer.clear();
     this.glyphAtlasCache.clear();
     this.pickingIndex.clear();
     this.textureCache.clear();
@@ -1519,8 +1512,6 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   private async buildEmblemsContainer(sequence: number): Promise<Container> {
-    const container = new Container();
-    container.label = "emblems";
     const scene = buildEmblemScene(
       this.getWorld(),
       getWorldBounds(this.getWorld()),
@@ -1528,82 +1519,19 @@ export class PixiMapRenderer implements MapRenderer {
       this.sceneRevisions.getLayerRevision("emblems")
     );
     this.pickSceneSources.emblems = scene;
-    container.alpha = scene.opacity;
     this.stats.unsupportedEmblemEffects = [...scene.unsupportedEffects];
-    const activeTextureKeys = new Set(scene.groups.flatMap(group => group.items.map(item => item.textureKey)));
-    for (const key of this.emblemSourceCache.keys()) {
-      if (!activeTextureKeys.has(key)) this.emblemSourceCache.delete(key);
+    const container = await this.emblemLayer.build(scene, {
+      acquireTexture: source => this.textureCache.acquire(source, () => Assets.load<Texture>(source)),
+      assertAssetAvailable: id => this.assertAssetAvailable("emblem", id),
+      isCurrent: () => sequence === this.rebuildSequence,
+      resolveIcon: this.rendererOptions.resolveEmblemIcon,
+      strokeWidth: this.semanticStyle.emblems.strokeWidth
+    });
+    if (sequence === this.rebuildSequence) {
+      this.stats.missingEmblemAssets = this.emblemLayer.missingAssets;
+      this.updateEmblemGroupVisibility();
     }
-
-    const missingAssets: string[] = [];
-    for (const group of scene.groups) {
-      const groupContainer = new Container();
-      groupContainer.label = `emblems:${group.type}`;
-      this.emblemGroupDisplays.push({
-        automaticVisibility: scene.automaticVisibility,
-        baseSize: group.baseSize,
-        container: groupContainer
-      });
-      const displays = await Promise.all(
-        group.items.map(async item => {
-          let handle: RendererResourceHandle<Texture> | null = null;
-          try {
-            const source = await this.getEmblemSource(item.textureKey, item.svgId, item.coa);
-            if (source) handle = await this.textureCache.acquire(source, () => Assets.load<Texture>(source));
-          } catch {
-            this.assertAssetAvailable("emblem", item.domainId);
-          }
-          if (!handle) {
-            this.assertAssetAvailable("emblem", item.domainId);
-            missingAssets.push(item.domainId);
-          }
-          return { handle, item };
-        })
-      );
-      if (sequence !== this.rebuildSequence) {
-        for (const { handle } of displays) handle?.release();
-        return container;
-      }
-      const spatialItems = displays.map(({ handle, item }) => ({
-        handle,
-        height: item.size,
-        item,
-        width: item.size,
-        x: item.x - item.size / 2,
-        y: item.y - item.size / 2
-      }));
-      for (const bucket of bucketSpatialItems(spatialItems, STATIC_INSTANCE_TILE_SIZE)) {
-        const tile = new Container();
-        tile.cullable = true;
-        tile.label = `emblems:${group.type}:tile:${bucket.key}`;
-        for (const { handle, item } of bucket.items) {
-          const display = handle
-            ? new Sprite({ height: item.size, texture: handle.value, width: item.size })
-            : createMissingEmblemGraphic(item.size);
-          display.eventMode = "none";
-          display.label = `emblem:${item.domainId}`;
-          display.position.set(item.x, item.y);
-          if (display instanceof Sprite) display.anchor.set(0.5);
-          tile.addChild(display);
-          if (handle) this.emblemTextureHandles.add(handle);
-        }
-        groupContainer.addChild(tile);
-      }
-      container.addChild(groupContainer);
-    }
-    this.stats.missingEmblemAssets = missingAssets;
-    this.updateEmblemGroupVisibility();
     return container;
-  }
-
-  private getEmblemSource(textureKey: string, svgId: string, coa: Emblem): Promise<string | null> {
-    const cached = this.emblemSourceCache.get(textureKey);
-    if (cached) return cached;
-    const source = Promise.resolve(
-      this.rendererOptions.resolveEmblemIcon?.(svgId, coa, this.semanticStyle.emblems.strokeWidth) ?? null
-    ).catch(() => null);
-    this.emblemSourceCache.set(textureKey, source);
-    return source;
   }
 
   private async buildLabelsContainer(sequence: number): Promise<Container> {
@@ -2318,7 +2246,6 @@ export class PixiMapRenderer implements MapRenderer {
     this.labelAtlasQueuedResolution = 0;
     this.labelDisplays = [];
     this.labelGroupDisplays = [];
-    this.emblemGroupDisplays = [];
     this.stats.coordinateLabels = 0;
     this.stats.coordinateLines = 0;
     this.stats.emblemSymbols = 0;
@@ -2351,7 +2278,7 @@ export class PixiMapRenderer implements MapRenderer {
     this.releaseResourceHandles(this.compassTextureHandles);
     this.releaseResourceHandles(this.goodsTextureHandles);
     this.releaseResourceHandles(this.reliefTextureHandles);
-    this.releaseResourceHandles(this.emblemTextureHandles);
+    this.emblemLayer.release();
     this.releaseResourceHandles(this.markerTextureHandles);
     this.releaseResourceHandles(this.militaryTextureHandles);
     this.releaseResourceHandles(this.oceanTextureHandles);
@@ -2560,10 +2487,7 @@ export class PixiMapRenderer implements MapRenderer {
 
   private updateEmblemGroupVisibility(): void {
     if (!(this.layerVisibility.get("emblems") ?? true)) return;
-    for (const group of this.emblemGroupDisplays) {
-      const renderedSize = group.baseSize * this.camera.scale;
-      group.container.visible = !group.automaticVisibility || (renderedSize >= 25 && renderedSize <= 300);
-    }
+    this.emblemLayer.updateVisibility(this.camera.scale);
   }
 
   private updateLabelGroupVisibility(): void {
@@ -2874,11 +2798,7 @@ export class PixiMapRenderer implements MapRenderer {
       this.stats.unsupportedCoordinateEffects = [];
       this.releaseResourceHandles(this.coordinateGlyphAtlasHandles);
     }
-    if (layer === "emblems") {
-      this.emblemGroupDisplays = [];
-      this.emblemSourceCache.clear();
-      this.releaseResourceHandles(this.emblemTextureHandles);
-    }
+    if (layer === "emblems") this.emblemLayer.clear();
     if (layer === "labels") {
       if (this.labelAtlasRefreshTimeoutId !== null) clearTimeout(this.labelAtlasRefreshTimeoutId);
       this.labelAtlasRefreshTimeoutId = null;
@@ -3300,37 +3220,6 @@ function createSymbolSprite(texture: Texture | undefined, size: number): Sprite 
     new GraphicsContext()
       .poly([0, -size / 2, size / 2, 0, 0, size / 2, -size / 2, 0], true)
       .stroke({ color: "#c13119", width: Math.max(0.2, size / 12) })
-  );
-}
-
-function createMissingEmblemGraphic(size: number): Graphics {
-  const radius = size / 2;
-  return new Graphics(
-    new GraphicsContext()
-      .poly(
-        [
-          0,
-          -radius,
-          radius * 0.82,
-          -radius * 0.45,
-          radius * 0.68,
-          radius * 0.5,
-          0,
-          radius,
-          -radius * 0.68,
-          radius * 0.5,
-          -radius * 0.82,
-          -radius * 0.45
-        ],
-        true
-      )
-      .fill({ alpha: 0.65, color: "#eeeeee" })
-      .stroke({ color: "#c13119", width: Math.max(0.4, size / 24) })
-      .moveTo(-radius * 0.4, -radius * 0.35)
-      .lineTo(radius * 0.4, radius * 0.45)
-      .moveTo(radius * 0.4, -radius * 0.35)
-      .lineTo(-radius * 0.4, radius * 0.45)
-      .stroke({ color: "#c13119", width: Math.max(0.4, size / 24) })
   );
 }
 

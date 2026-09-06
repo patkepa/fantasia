@@ -11,6 +11,7 @@ New `src/` modules import their dependencies; a global remains only for an on-de
 | `window.tinymce` | `controllers/notes-editor.ts`, loaded on demand | Rich-text map notes | TinyMCE is a legacy optional editor integration. |
 | `window.Services`, `window.Controllers` | `services/index.ts`, `controllers/index.ts` | Supported classic markup and browser API | Transitional public API for existing commands and dynamic legacy markup. |
 | Unit input globals | `services/units-settings.ts` | Map settings, map serialization, historical map loading | Controller-owned detached inputs preserve the legacy value API while the units dialog is mounted only on demand. |
+| `window.Cultures` | `controllers/culture-generation-settings.ts`, installed during bootstrap | Browser scripts and classic generation calls | The facade reads culture controls and displays returned climate warnings for legacy callers. Bundled callers import `Cultures` from the generator and pass settings explicitly. Retain until the browser API is explicitly retired; the generator itself has no UI imports or control reads. |
 
 Removed startup globals: Alea, FlatQueue, Simplify, and the `ldb` IndexedDB wrapper. The service worker remains a public asset and is not an application-runtime module.
 
