@@ -1,5 +1,6 @@
+import { type BoundingBox, clipPolyline } from "lineclip";
 import type { TypedArray } from "@/types/PackedGraph";
-import { getIsolines } from "@/utils/pathUtils";
+import { getIsolines, parsePathPoints } from "@/utils/pathUtils";
 import { buildBaseGeographyScene } from "../scene/layers/base-geography-scene";
 import type { MapInteractionGeometry, MapInteractionGeometryStyle } from "./map-interaction-overlay";
 
@@ -33,12 +34,13 @@ export function getCountrySelectionOverlay(
   const borderPath = getCountryLandBorderPath(countryId);
   if (borderPath) geometries.push({ kind: "path", path: borderPath, style: outlineStyle });
 
-  const coastlinePath = getCountryCoastlinePath(countryId);
+  const maskStrokeWidth = 12;
+  const coastlinePath = getCountryCoastlinePath(countryId, selectionPath, maskStrokeWidth);
   if (coastlinePath) {
     geometries.push({
       kind: "masked-path",
       maskPath: selectionPath,
-      maskStrokeWidth: 12,
+      maskStrokeWidth,
       path: coastlinePath,
       style: outlineStyle
     });
@@ -84,14 +86,36 @@ function getCountryLandBorderPath(countryId: number): string {
   return segments.join("");
 }
 
-function getCountryCoastlinePath(countryId: number): string {
+function getCountryCoastlinePath(countryId: number, selectionPath: string, maskStrokeWidth: number): string {
   const featureIds = new Set<number>();
   for (const cellId of pack.cells.i) {
     if (pack.cells.state[cellId] === countryId) featureIds.add(pack.cells.f[cellId]);
   }
-  const geography = buildBaseGeographyScene(pack, { height: graphHeight, width: graphWidth });
+  // The mask only reveals coastline near the country. Do not send a whole continent's
+  // detailed path to SVG or rebuild unrelated islands and lakes for each selection.
+  const bounds: BoundingBox = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const [x, y] of parsePathPoints(selectionPath)) {
+    bounds[0] = Math.min(bounds[0], x);
+    bounds[1] = Math.min(bounds[1], y);
+    bounds[2] = Math.max(bounds[2], x);
+    bounds[3] = Math.max(bounds[3], y);
+  }
+  // Include the default SVG miter limit (4) around the mask's stroked boundary.
+  const padding = maskStrokeWidth * 2;
+  bounds[0] -= padding;
+  bounds[1] -= padding;
+  bounds[2] += padding;
+  bounds[3] += padding;
+  const geography = buildBaseGeographyScene(
+    { ...pack, features: pack.features.filter(feature => feature && featureIds.has(feature.i)) },
+    { height: graphHeight, width: graphWidth }
+  );
   return geography.coastline.paths
-    .filter(path => featureIds.has(Number(path.domainId)))
-    .map(path => `M${path.points.join(" L")}Z`)
+    .flatMap(path => {
+      const points: [number, number][] = path.points.map(([x, y]) => [x, y]);
+      if (path.closed && points.length) points.push(points[0]);
+      return clipPolyline(points, bounds);
+    })
+    .map(points => `M${points.join(" L")}`)
     .join("");
 }

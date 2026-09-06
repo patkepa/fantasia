@@ -1,4 +1,11 @@
-import { clientToViewport, type MapCamera, normalizeCamera, screenToWorld, worldToScreen } from "../core/camera";
+import {
+  camerasEqual,
+  clientToViewport,
+  type MapCamera,
+  normalizeCamera,
+  screenToWorld,
+  worldToScreen
+} from "../core/camera";
 import type { ScreenPoint } from "../core/map-renderer";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -137,15 +144,20 @@ export class MapInteractionOverlay {
   }
 
   setCamera(camera: MapCamera): void {
+    const previous = this.camera;
     this.camera = normalizeCamera(camera);
     const root = this.root;
     if (!root) return;
+    if (camerasEqual(this.camera, previous)) return;
     const layout = getMapInteractionOverlayLayout(this.camera);
     root.setAttribute("data-viewport-height", String(layout.height));
     root.setAttribute("data-viewport-width", String(layout.width));
     root.setAttribute("transform", layout.transform);
-    this.updateGeometryScales();
-    this.replaceChannel("handles", this.renderHandles(layout.handleRadius));
+    for (const mask of root.querySelectorAll<SVGMaskElement>("mask")) setMaskViewport(mask, this.camera);
+    if (previous.scale !== this.camera.scale) {
+      this.updateGeometryScales();
+      if (this.state.handles.length) this.replaceChannel("handles", this.renderHandles(layout.handleRadius));
+    }
   }
 
   update(patch: MapInteractionOverlayPatch): void {
@@ -214,7 +226,7 @@ export class MapInteractionOverlay {
       let maskId: string | undefined;
       if (geometry.kind === "masked-path") {
         maskId = `mapInteractionMask-${channel}-${index}`;
-        group.append(createPathMask(maskId, geometry));
+        group.append(createPathMask(maskId, geometry, this.camera));
       }
       group.append(renderGeometry(geometry, this.camera.scale, maskId));
     }
@@ -499,11 +511,14 @@ function createGeometryElement(geometry: MapInteractionGeometry, scale: number):
 
 function createPathMask(
   id: string,
-  geometry: Extract<MapInteractionGeometry, { kind: "masked-path" }>
+  geometry: Extract<MapInteractionGeometry, { kind: "masked-path" }>,
+  camera: MapCamera
 ): SVGMaskElement {
   const mask = document.createElementNS(SVG_NAMESPACE, "mask");
   mask.id = id;
   mask.setAttribute("maskContentUnits", "userSpaceOnUse");
+  mask.setAttribute("maskUnits", "userSpaceOnUse");
+  setMaskViewport(mask, camera);
   const path = document.createElementNS(SVG_NAMESPACE, "path");
   path.setAttribute("d", geometry.maskPath);
   path.setAttribute("fill", "none");
@@ -511,6 +526,15 @@ function createPathMask(
   path.setAttribute("stroke-width", String(geometry.maskStrokeWidth));
   mask.append(path);
   return mask;
+}
+
+function setMaskViewport(mask: SVGMaskElement, camera: MapCamera): void {
+  // Default mask bounds follow the entire coastline, producing huge offscreen surfaces
+  // at deep zoom. Only the visible viewport can contribute to the selection overlay.
+  mask.setAttribute("x", String(-camera.x / camera.scale));
+  mask.setAttribute("y", String(-camera.y / camera.scale));
+  mask.setAttribute("width", String(camera.width / camera.scale));
+  mask.setAttribute("height", String(camera.height / camera.scale));
 }
 
 function applyGeometryStyle(element: SVGElement, style: MapInteractionGeometryStyle | undefined, scale = 1): void {
