@@ -13,11 +13,7 @@ import { clearLegend } from "@/renderers/draw-legend";
 import { drawMeasurers } from "@/renderers/draw-measurers";
 import { drawRelief } from "@/renderers/draw-relief-icons";
 import { drawLabels } from "@/renderers/labels/labels-renderer";
-import {
-  getLegacyRendererLayerVisibility,
-  importLegacyRendererStyle,
-  removeLegacyRendererGroups
-} from "@/renderers/pixi/legacy-svg-import";
+import { getLegacyRendererLayerVisibility, importLegacyRendererStyle } from "@/renderers/pixi/legacy-svg-import";
 import { getStoredPixiLayerVisibility } from "@/renderers/pixi/pixi-layer-visibility-state";
 import {
   addCustomHeightColorScheme as addCustomColorScheme,
@@ -527,15 +523,14 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
         if (requireWorkspaceCapability("map:edit")) clearLegend();
       });
 
-    // add custom heightmap color scheme if any
-    if (heightmapColorSchemes) {
-      const oceanHeights = document.getElementById("oceanHeights");
-      const oceanScheme = oceanHeights?.getAttribute("scheme");
-      if (oceanScheme && !(oceanScheme in HEIGHT_COLOR_SCHEMES)) addCustomColorScheme(oceanScheme);
-      const landHeights = document.getElementById("landHeights");
-      const landScheme = landHeights?.getAttribute("scheme");
-      if (landScheme && !(landScheme in HEIGHT_COLOR_SCHEMES)) addCustomColorScheme(landScheme);
-    }
+    // Register color stops embedded by legacy maps. The scheme registry is imported above; checking its removed
+    // script-level predecessor here made every saved-map load throw before the renderer could start.
+    const oceanHeights = document.getElementById("oceanHeights");
+    const oceanScheme = oceanHeights?.getAttribute("scheme");
+    if (oceanScheme && !(oceanScheme in HEIGHT_COLOR_SCHEMES)) addCustomColorScheme(oceanScheme);
+    const landHeights = document.getElementById("landHeights");
+    const landScheme = landHeights?.getAttribute("scheme");
+    if (landScheme && !(landScheme in HEIGHT_COLOR_SCHEMES)) addCustomColorScheme(landScheme);
 
     {
       // add custom texture if any
@@ -785,7 +780,6 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
         pack.markers.sort((a, b) => a.i - b.i);
       }
     }
-    removeLegacyRendererGroups();
     // draw data layers (not kept in svg)
     if (window.LayerControls.isLayerOn("toggleRulers")) drawMeasurers();
     if (window.LayerControls.isLayerOn("toggleGrid")) window.LayerControls.redrawLayer("toggleGrid");

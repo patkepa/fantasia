@@ -1,4 +1,5 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { resetWorkspaceModeForTests, setWorkspaceMode } from "@/application/workspace-mode";
 import {
   dispatchRegenerationCommand,
   type RegenerationCommandDetail,
@@ -7,6 +8,11 @@ import {
 } from "./regeneration-command";
 
 describe("dispatchRegenerationCommand", () => {
+  beforeEach(async () => {
+    resetWorkspaceModeForTests();
+    await setWorkspaceMode("edit");
+  });
+
   test("dispatches the feature id and input modifiers", () => {
     const dispatchEvent = vi.fn<(event: Event) => boolean>(() => true);
     const target: RegenerationCommandTarget = { dispatchEvent };

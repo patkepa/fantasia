@@ -1,6 +1,7 @@
 import {test, expect, type Page} from "@playwright/test";
 import fs from "fs";
 import path from "path";
+import { getRenderedFrameSignature } from "../helpers/renderer-frame-signature";
 
 declare const notes: {id: string}[]; // page global, resolved inside page.evaluate
 declare const options: {labels: {resizeOnZoom: boolean; showAll: boolean; groups: {type: string; mode?: string}[]}};
@@ -83,13 +84,12 @@ test.describe("Map loading", () => {
     // Get the file input element and upload the map file
     const fileInput = page.locator("#mapToLoad");
     const mapFilePath = path.join(__dirname, "../fixtures/demo.map");
+    const previousMapId = await page.evaluate(() => (window as any).mapId);
     await fileInput.setInputFiles(mapFilePath);
 
     // Wait for map to be fully loaded
     // mapId is set at the very end of map loading in showStatistics()
-    await page.waitForFunction(() => (window as any).mapId !== undefined, {
-      timeout: 120000
-    });
+    await page.waitForFunction(id => (window as any).mapId !== id, previousMapId, { timeout: 120000 });
 
     // Additional wait for rendering to settle
     await page.waitForTimeout(500);
@@ -124,7 +124,74 @@ test.describe("Map loading", () => {
     expect(criticalErrors).toEqual([]);
   });
 
-  test("loaded map should have correct SVG structure", async ({page}) => {
+  test("loaded map should commit a visible Pixi frame", async ({page}) => {
+    const fileInput = page.locator("#mapToLoad");
+    const previousRevision = await page.evaluate(
+      () => (window as any).MapPerformance?.getRendererSnapshot()?.committedWorldRevision ?? 0
+    );
+    await fileInput.setInputFiles(path.join(__dirname, "../fixtures/demo.map"));
+
+    await page.waitForFunction(
+      before => {
+        const snapshot = (window as any).MapPerformance?.getRendererSnapshot();
+        const cells = (window as any).pack?.cells?.i?.length ?? 0;
+        return (
+          snapshot?.lifecycleState === "committed" &&
+          snapshot.committedWorldRevision > before &&
+          snapshot.committedWorldRevision === snapshot.requestedWorldRevision &&
+          snapshot.cells === cells &&
+          cells > 0
+        );
+      },
+      previousRevision,
+      { timeout: 120000 }
+    );
+
+    const health = await page.evaluate(() => {
+      const map = document.getElementById("map")!;
+      const surface = document.getElementById("pixi-map-renderer")!;
+      const canvas = surface.querySelector("canvas")!;
+      const mapBounds = map.getBoundingClientRect();
+      const surfaceBounds = surface.getBoundingClientRect();
+      const snapshot = (window as any).MapPerformance.getRendererSnapshot();
+      return {
+        active: map.classList.contains("pixi-renderer-active"),
+        canvasPosition: getComputedStyle(surface).position,
+        committedRevision: snapshot.committedWorldRevision,
+        contextLost: snapshot.contextLost,
+        cssHeight: snapshot.canvasCssHeight,
+        cssWidth: snapshot.canvasCssWidth,
+        legacyOceanRemoved: !document.querySelector("#viewbox > #ocean"),
+        mapHeight: Math.round(mapBounds.height),
+        mapWidth: Math.round(mapBounds.width),
+        requestedRevision: snapshot.requestedWorldRevision,
+        surfaceHeight: Math.round(surfaceBounds.height),
+        surfaceWidth: Math.round(surfaceBounds.width),
+        backingHeight: (canvas as HTMLCanvasElement).height,
+        backingWidth: (canvas as HTMLCanvasElement).width
+      };
+    });
+    const frame = await getRenderedFrameSignature(page);
+
+    expect(health).toMatchObject({
+      active: true,
+      canvasPosition: "absolute",
+      contextLost: false,
+      legacyOceanRemoved: true
+    });
+    expect(health.committedRevision).toBe(health.requestedRevision);
+    expect(health.backingHeight).toBeGreaterThan(0);
+    expect(health.backingWidth).toBeGreaterThan(0);
+    expect(health.cssHeight).toBeGreaterThan(0);
+    expect(health.cssWidth).toBeGreaterThan(0);
+    expect(Math.abs(health.surfaceHeight - health.mapHeight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(health.surfaceWidth - health.mapWidth)).toBeLessThanOrEqual(1);
+    expect(frame.opaquePixels).toBeGreaterThan(0);
+    expect(frame.colorBuckets).toBeGreaterThan(4);
+    expect(frame.blackRatio).toBeLessThan(0.9);
+  });
+
+  test("loaded map should have correct renderer structure", async ({page}) => {
     const errors: string[] = [];
     page.on("pageerror", error => {
       const message = error?.message || String(error);
@@ -138,33 +205,33 @@ test.describe("Map loading", () => {
 
     const fileInput = page.locator("#mapToLoad");
     const mapFilePath = path.join(__dirname, "../fixtures/demo.map");
+    const previousRevision = await page.evaluate(
+      () => (window as any).MapPerformance?.getRendererSnapshot()?.committedWorldRevision ?? 0
+    );
     await fileInput.setInputFiles(mapFilePath);
 
-    await page.waitForFunction(() => (window as any).mapId !== undefined, {
-      timeout: 120000
-    });
-    await page.waitForTimeout(500);
+    await page.waitForFunction(
+      before => {
+        const snapshot = (window as any).MapPerformance?.getRendererSnapshot();
+        return snapshot?.lifecycleState === "committed" && snapshot.committedWorldRevision > before;
+      },
+      previousRevision,
+      { timeout: 120000 }
+    );
 
-    // Check essential SVG layers exist
+    // Persistent layers belong to Pixi after commit; SVG retains only the viewport and interaction boundary.
     const layers = await page.evaluate(() => {
       return {
-        ocean: !!document.getElementById("ocean"),
-        lakes: !!document.getElementById("lakes"),
-        coastline: !!document.getElementById("coastline"),
-        rivers: !!document.getElementById("rivers"),
-        borders: !!document.getElementById("borders"),
-        burgs: !!document.getElementById("burgIcons"),
-        labels: !!document.getElementById("labels")
+        canvas: !!document.querySelector("#pixi-map-renderer canvas"),
+        map: !!document.getElementById("map"),
+        viewbox: !!document.getElementById("viewbox"),
+        legacyLayers: ["ocean", "lakes", "coastline", "rivers", "borders", "burgIcons", "labels"].filter(id =>
+          document.querySelector(`#viewbox > #${id}`)
+        )
       };
     });
 
-    expect(layers.ocean).toBe(true);
-    expect(layers.lakes).toBe(true);
-    expect(layers.coastline).toBe(true);
-    expect(layers.rivers).toBe(true);
-    expect(layers.borders).toBe(true);
-    expect(layers.burgs).toBe(true);
-    expect(layers.labels).toBe(true);
+    expect(layers).toEqual({ canvas: true, legacyLayers: [], map: true, viewbox: true });
 
     const criticalErrors = errors.filter(
       e =>

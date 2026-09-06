@@ -33,6 +33,10 @@ export interface CellTopologySource {
   vertexPoints: readonly (readonly [number, number] | undefined)[];
 }
 
+export const RETAINED_CELL_TILE_SIZE = 512;
+
+const tileCache = new WeakMap<RetainedCellTopology, readonly RetainedCellTopology[]>();
+
 interface ValidCell {
   bounds: SceneBounds;
   cellId: number;
@@ -120,7 +124,39 @@ export function buildRetainedCellTopology(source: CellTopologySource): RetainedC
 
 export function getCellGeometryRange(topology: RetainedCellTopology, cellId: number): CellGeometryRange | undefined {
   const rangeIndex = topology.cellRangeIndices[cellId] ?? -1;
-  return rangeIndex < 0 ? undefined : topology.cellRanges[rangeIndex];
+  const range = rangeIndex < 0 ? undefined : topology.cellRanges[rangeIndex];
+  // Tiles share the lookup; the indexed range may belong to a different tile.
+  return range?.cellId === cellId ? range : undefined;
+}
+
+/**
+ * Splits immutable cell geometry into coarse spatial tiles. Tiles keep cell-local vertices, so thematic fill layers
+ * can cull off-screen mesh work and update only the color buffers touched by a brush.
+ */
+export function getRetainedCellTopologyTiles(
+  topology: RetainedCellTopology,
+  tileSize = RETAINED_CELL_TILE_SIZE
+): readonly RetainedCellTopology[] {
+  if (tileSize === RETAINED_CELL_TILE_SIZE) {
+    const cached = tileCache.get(topology);
+    if (cached) return cached;
+  }
+
+  const rangesByTile = new Map<string, CellGeometryRange[]>();
+  for (const range of topology.cellRanges) {
+    const centerX = (range.bounds.minX + range.bounds.maxX) / 2;
+    const centerY = (range.bounds.minY + range.bounds.maxY) / 2;
+    const key = `${Math.floor(centerX / tileSize)}:${Math.floor(centerY / tileSize)}`;
+    const ranges = rangesByTile.get(key);
+    if (ranges) ranges.push(range);
+    else rangesByTile.set(key, [range]);
+  }
+
+  // Each cell belongs to one tile, so all tiles can share its local range index.
+  const cellRangeIndices = new Int32Array(topology.cellRangeIndices.length).fill(-1);
+  const tiles = [...rangesByTile.values()].map(ranges => buildTileTopology(topology, ranges, cellRangeIndices));
+  if (tileSize === RETAINED_CELL_TILE_SIZE) tileCache.set(topology, tiles);
+  return tiles;
 }
 
 export class RetainedCellTopologyCache {
@@ -159,4 +195,56 @@ function getBounds(vertexIds: readonly number[], points: CellTopologySource["ver
     bounds.minY = Math.min(bounds.minY, y);
   }
   return bounds;
+}
+
+function buildTileTopology(
+  topology: RetainedCellTopology,
+  sourceRanges: readonly CellGeometryRange[],
+  cellRangeIndices: Int32Array
+): RetainedCellTopology {
+  const vertexCount = sourceRanges.reduce((count, range) => count + range.vertexCount, 0);
+  const triangleCount = sourceRanges.reduce((count, range) => count + range.triangleCount, 0);
+  const positions = new Float32Array(vertexCount * 2);
+  const indices = vertexCount > 65_535 ? new Uint32Array(triangleCount * 3) : new Uint16Array(triangleCount * 3);
+  const cellRanges: CellGeometryRange[] = [];
+  let bounds: SceneBounds | null = null;
+  let vertexOffset = 0;
+  let indexOffset = 0;
+
+  for (const sourceRange of sourceRanges) {
+    positions.set(
+      topology.positions.subarray(
+        sourceRange.vertexOffset * 2,
+        (sourceRange.vertexOffset + sourceRange.vertexCount) * 2
+      ),
+      vertexOffset * 2
+    );
+    for (let triangleIndex = 0; triangleIndex < sourceRange.triangleCount; triangleIndex++) {
+      const target = indexOffset + triangleIndex * 3;
+      indices[target] = vertexOffset;
+      indices[target + 1] = vertexOffset + triangleIndex + 1;
+      indices[target + 2] = vertexOffset + triangleIndex + 2;
+    }
+    cellRangeIndices[sourceRange.cellId] = cellRanges.length;
+    cellRanges.push({
+      ...sourceRange,
+      indexOffset,
+      triangleOffset: indexOffset / 3,
+      vertexOffset
+    });
+    bounds = mergeSceneBounds(bounds, sourceRange.bounds);
+    vertexOffset += sourceRange.vertexCount;
+    indexOffset += sourceRange.indexCount;
+  }
+
+  return {
+    bounds,
+    cellRangeIndices,
+    cellRanges,
+    indices,
+    positions,
+    revision: topology.revision,
+    triangleCount,
+    vertexCount
+  };
 }

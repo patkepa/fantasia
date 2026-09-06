@@ -549,6 +549,7 @@ class HeightmapModule {
   async generate(graph: any): Promise<Uint8Array> {
     TIME && console.time("defineHeightmap");
     const id = (ensureEl("templateInput")! as HTMLInputElement).value;
+    if (!id) throw new Error("No heightmap template is selected");
     Math.random = Alea(seed);
     const isTemplate = id in heightmapTemplates;
 
@@ -585,7 +586,7 @@ class HeightmapModule {
   }
 
   fromPrecreated(graph: any, id: string): Promise<Uint8Array> {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       // create canvas where 1px corresponds to a cell
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
@@ -595,20 +596,30 @@ class HeightmapModule {
 
       // load heightmap into image and render to canvas
       const img = new Image();
-      img.src = `./heightmaps/${id}.png`;
-      img.onload = () => {
-        if (!ctx) {
-          throw new Error("Could not get canvas context");
-        }
-        this.heights = this.heights || new Uint8Array(cellsX * cellsY);
-        ctx.drawImage(img, 0, 0, cellsX, cellsY);
-        const imageData = ctx.getImageData(0, 0, cellsX, cellsY);
-        this.setGraph(graph);
-        this.getHeightsFromImageData(imageData.data);
+      const cleanup = () => {
         canvas.remove();
         img.remove();
-        resolve(this.heights);
       };
+      img.onerror = () => {
+        cleanup();
+        reject(new Error(`Cannot load heightmap: ${id}`));
+      };
+      img.onload = () => {
+        try {
+          if (!ctx) throw new Error("Could not get canvas context");
+          this.heights = this.heights || new Uint8Array(cellsX * cellsY);
+          ctx.drawImage(img, 0, 0, cellsX, cellsY);
+          const imageData = ctx.getImageData(0, 0, cellsX, cellsY);
+          this.setGraph(graph);
+          this.getHeightsFromImageData(imageData.data);
+          resolve(this.heights!);
+        } catch (error) {
+          reject(error);
+        } finally {
+          cleanup();
+        }
+      };
+      img.src = `./heightmaps/${id}.png`;
     });
   }
 

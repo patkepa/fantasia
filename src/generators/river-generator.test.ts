@@ -39,6 +39,18 @@ describe("RiverModule helpers", () => {
     });
   });
 
+  describe("alterHeights", () => {
+    it("preserves the temperature gradient applied from neighboring cells", () => {
+      globalThis.pack.cells = {
+        c: [[1, 2], [0], [0]],
+        h: Uint8Array.from([25, 10, 30]),
+        t: Uint8Array.from([2, 4, 0])
+      } as any;
+
+      expect(Rivers.alterHeights()).toEqual([25.0202, 10, 30]);
+    });
+  });
+
   describe("resolveDrainFeature", () => {
     it("returns the ocean feature id when river drains into the sea", () => {
       // cell 5 is the river-bearing land cell; cell 6 is the sea cell at the mouth

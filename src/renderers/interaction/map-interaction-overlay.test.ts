@@ -50,8 +50,64 @@ describe("map interaction overlay", () => {
       overlay.setCamera(camera);
 
       expect(setAttribute).toHaveBeenCalledWith("transform", "translate(40 -20) scale(2)");
-      expect(root.querySelectorAll).toHaveBeenCalledTimes(2);
-      expect(replaceWith).toHaveBeenCalledOnce();
+      expect(root.querySelectorAll).toHaveBeenCalledTimes(3);
+      expect(replaceWith).not.toHaveBeenCalled();
+    } finally {
+      document.createElementNS = createElementNS;
+    }
+  });
+
+  it("bounds coastline masks to the visible viewport when selecting, panning, and zooming", () => {
+    const createElementNS = document.createElementNS;
+    const masks: { setAttribute: ReturnType<typeof vi.fn> }[] = [];
+    document.createElementNS = vi.fn((_namespace: string, tag: string) => {
+      const element = {
+        append: vi.fn(),
+        classList: { add: vi.fn() },
+        dataset: {},
+        setAttribute: vi.fn(),
+        style: { setProperty: vi.fn() }
+      };
+      if (tag === "mask") masks.push(element);
+      return element;
+    }) as unknown as typeof document.createElementNS;
+    const root = {
+      querySelector: vi.fn(() => ({ replaceWith: vi.fn() })),
+      querySelectorAll: vi.fn((selector: string) => (selector === "mask" ? masks : [])),
+      setAttribute: vi.fn()
+    };
+    const overlay = new MapInteractionOverlay();
+    (overlay as unknown as { root: typeof root }).root = root;
+
+    try {
+      overlay.setCamera(camera);
+      overlay.update({
+        selection: [{ kind: "masked-path", path: "M0,0L10000,0", maskPath: "M0,0L100,0", maskStrokeWidth: 12 }]
+      });
+      expect(masks).toHaveLength(1);
+      const attributes = () => Object.fromEntries(masks[0].setAttribute.mock.calls);
+      expect(attributes()).toMatchObject({
+        maskUnits: "userSpaceOnUse",
+        x: "-20",
+        y: "10",
+        width: "400",
+        height: "300"
+      });
+
+      root.querySelector.mockClear();
+      root.querySelectorAll.mockClear();
+      overlay.setCamera({ ...camera, x: -200 });
+      expect(attributes()).toMatchObject({ x: "100", y: "10", width: "400", height: "300" });
+      expect(root.querySelector).not.toHaveBeenCalled();
+      expect(root.querySelectorAll).toHaveBeenCalledExactlyOnceWith("mask");
+
+      overlay.setCamera({ ...camera, x: -200, scale: 20 });
+      expect(attributes()).toMatchObject({ x: "10", y: "1", width: "40", height: "30" });
+      root.setAttribute.mockClear();
+      root.querySelectorAll.mockClear();
+      overlay.setCamera({ ...camera, x: -200, scale: 20 });
+      expect(root.setAttribute).not.toHaveBeenCalled();
+      expect(root.querySelectorAll).not.toHaveBeenCalled();
     } finally {
       document.createElementNS = createElementNS;
     }

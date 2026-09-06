@@ -64,18 +64,37 @@ export function MapMinimap(): React.JSX.Element {
       viewport.setAttribute("height", String(bounds.height));
     };
 
-    const updateOverview = () => {
-      syncDimensions();
-      const button = buttonRef.current;
-      const canvas = canvasRef.current;
-      const overview = createPixiRendererOverview(MAX_OVERVIEW_WIDTH, MAX_OVERVIEW_HEIGHT);
-      if (!button || !canvas || !overview) return;
+    let mounted = true;
+    let overviewInFlight = false;
+    let overviewPending = false;
 
-      canvas.width = overview.width;
-      canvas.height = overview.height;
-      button.style.aspectRatio = `${overview.width} / ${overview.height}`;
-      canvas.getContext("2d")?.drawImage(overview.source, 0, 0, overview.width, overview.height);
-      updateViewport();
+    const updateOverview = async () => {
+      if (overviewInFlight) {
+        overviewPending = true;
+        return;
+      }
+      overviewInFlight = true;
+      syncDimensions();
+      try {
+        const overview = await createPixiRendererOverview(MAX_OVERVIEW_WIDTH, MAX_OVERVIEW_HEIGHT);
+        const button = buttonRef.current;
+        const canvas = canvasRef.current;
+        if (!mounted || !button || !canvas || !overview) return;
+
+        canvas.width = overview.width;
+        canvas.height = overview.height;
+        button.style.aspectRatio = `${overview.width} / ${overview.height}`;
+        canvas.getContext("2d")?.drawImage(overview.source, 0, 0, overview.width, overview.height);
+        updateViewport();
+      } catch {
+        // Keep the last completed overview while the renderer recovers from a failed GPU submission.
+      } finally {
+        overviewInFlight = false;
+        if (mounted && overviewPending) {
+          overviewPending = false;
+          void updateOverview();
+        }
+      }
     };
 
     let overviewTimer: number | null = null;
@@ -88,20 +107,20 @@ export function MapMinimap(): React.JSX.Element {
           idleCallback = window.requestIdleCallback(
             () => {
               idleCallback = null;
-              updateOverview();
+              void updateOverview();
             },
             { timeout: 1_500 }
           );
           return;
         }
-        updateOverview();
+        void updateOverview();
       }, OVERVIEW_REFRESH_DELAY_MS);
     };
 
     const updateScaleBarPosition = () => fitScaleBar(getViewportSurface().scaleBar, svgWidth, svgHeight);
     const updateMap = () => {
       syncDimensions();
-      updateOverview();
+      void updateOverview();
       updateViewport();
       updateScaleBarPosition();
     };
@@ -113,11 +132,12 @@ export function MapMinimap(): React.JSX.Element {
     window.addEventListener("map:generated", updateMap);
     window.addEventListener("map:loaded", updateMap);
     window.addEventListener("resize", updateScaleBarPosition);
-    updateOverview();
+    void updateOverview();
     updateViewport();
     updateScaleBarPosition();
 
     return () => {
+      mounted = false;
       if (window.updateMinimap === updateViewport) delete window.updateMinimap;
       if (overviewTimer !== null) window.clearTimeout(overviewTimer);
       if (idleCallback !== null && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);

@@ -174,7 +174,12 @@ export function moveTerritoryCenter(
   return changed(layer, [domainId], uniqueIds([previousCellId, cellId]));
 }
 
-export function setZoneCells(zones: Zone[], zoneId: number, cellIds: readonly number[]): EditorMutationResult {
+export function setZoneCells(
+  zones: Zone[],
+  zoneId: number,
+  cellIds: readonly number[],
+  committed = true
+): EditorMutationResult {
   const zone = zones.find(candidate => candidate.i === zoneId);
   if (!zone) return unchanged("zones");
   const previous = new Set(zone.cells);
@@ -186,7 +191,7 @@ export function setZoneCells(zones: Zone[], zoneId: number, cellIds: readonly nu
     ...next.filter(cellId => !previous.has(cellId))
   ]);
   zone.cells = next;
-  return changed("zones", [zoneId], affectedCellIds);
+  return changed("zones", [zoneId], affectedCellIds, committed);
 }
 
 export function moveFeatureVertex(

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildRetainedCellTopology, getCellGeometryRange, RetainedCellTopologyCache } from "./retained-cell-topology";
+import {
+  buildRetainedCellTopology,
+  getCellGeometryRange,
+  getRetainedCellTopologyTiles,
+  RetainedCellTopologyCache
+} from "./retained-cell-topology";
 
 const vertexPoints = [
   [0, 0],
@@ -77,6 +82,35 @@ describe("buildRetainedCellTopology", () => {
     });
 
     expect(topology.indices).toBeInstanceOf(Uint32Array);
+  });
+
+  it("partitions spatially distant cells into reusable coarse tiles", () => {
+    const topology = buildRetainedCellTopology({
+      cellIds: [0, 1],
+      cellVertices: [
+        [0, 1, 2],
+        [3, 4, 5]
+      ],
+      revision: "tiled",
+      vertexPoints: [
+        [0, 0],
+        [10, 0],
+        [0, 10],
+        [1_024, 0],
+        [1_034, 0],
+        [1_024, 10]
+      ]
+    });
+
+    const tiles = getRetainedCellTopologyTiles(topology);
+    expect(tiles).toHaveLength(2);
+    expect(tiles.map(tile => tile.cellRanges.map(range => range.cellId).sort())).toEqual([[0], [1]]);
+    expect(tiles[0].cellRangeIndices).toBe(tiles[1].cellRangeIndices);
+    expect(getCellGeometryRange(tiles[0], 0)?.cellId).toBe(0);
+    expect(getCellGeometryRange(tiles[1], 1)?.cellId).toBe(1);
+    expect(getCellGeometryRange(tiles[0], 1)).toBeUndefined();
+    expect(getCellGeometryRange(tiles[1], 0)).toBeUndefined();
+    expect(getRetainedCellTopologyTiles(topology)).toBe(tiles);
   });
 });
 

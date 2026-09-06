@@ -6,6 +6,7 @@ import {
 } from "@/controllers/editor-mutations";
 import type { Zone } from "@/generators/zones-generator";
 import type { MapLayerId } from "@/renderers/core/layer-registry";
+import { notifyMapMutation } from "@/services/map-mutation";
 import type { TypedArray } from "@/types/PackedGraph";
 
 /** Bounded undo stack used by manual territory-assignment modes. */
@@ -111,25 +112,25 @@ export class ZoneAssignmentSession {
     const cells = this.working.get(zoneId);
     if (!cells) return emptyZoneMutation();
     for (const cellId of cellIds) erase ? cells.delete(cellId) : cells.add(cellId);
-    return setZoneCells(this.zones, zoneId, [...cells]);
+    return setZoneCells(this.zones, zoneId, [...cells], false);
   }
 
   commit(): EditorMutationResult {
     const finalCells = new Map([...this.working].map(([zoneId, cells]) => [zoneId, [...cells]]));
     this.restore(this.original);
-    return this.apply(finalCells);
+    const mutation = mergeZoneMutations(
+      [...finalCells].map(([zoneId, cells]) => setZoneCells(this.zones, zoneId, cells, false))
+    );
+    if (mutation.changed) notifyMapMutation("editor:zones");
+    return mutation;
   }
 
   cancel(): void {
     this.restore(this.original);
   }
 
-  private apply(assignments: Map<number, number[]>): EditorMutationResult {
-    return mergeZoneMutations([...assignments].map(([zoneId, cells]) => setZoneCells(this.zones, zoneId, cells)));
-  }
-
   private restore(assignments: Map<number, number[]>): void {
-    for (const [zoneId, cells] of assignments) setZoneCells(this.zones, zoneId, cells);
+    for (const [zoneId, cells] of assignments) setZoneCells(this.zones, zoneId, cells, false);
   }
 }
 

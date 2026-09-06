@@ -21,11 +21,12 @@
     "test": "vitest",
     "test:e2e": "playwright test",
     "test:exploratory": "playwright test --config=tests/exploratory/playwright.config.ts",
-    "lint": "biome check --write",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
-    "pre-commit": "npm run lint"
+    "pre-commit": "npm run lint:fix"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
@@ -37,8 +38,10 @@
     "@types/polylabel": "^1.1.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.1",
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.0.18",
+    "oxc-transform-react": "^0.145.0",
     "playwright": "^1.57.0",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^5.9.3",

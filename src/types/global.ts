@@ -158,8 +158,6 @@ declare global {
       }
     | undefined;
 
-  var heightmapColorSchemes: Record<string, unknown>;
-
   type MilitaryUnit = ApplicationMilitaryUnit;
 }
 

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildCoastalAssignmentScene } from "./coastal-assignment-scene";
+import {
+  buildCoastalAssignmentEdges,
+  buildCoastalAssignmentScene,
+  buildCoastalAssignmentSceneFromEdges,
+  type CoastalAssignmentSource
+} from "./coastal-assignment-scene";
 
-const source = {
+const source: CoastalAssignmentSource = {
   cells: {
+    f: Uint8Array.from([0, 1, 0]),
     h: Uint8Array.from([30, 10, 30]),
     i: [0, 1, 2],
     v: [
@@ -11,6 +17,7 @@ const source = {
       [3, 2, 6, 7]
     ]
   },
+  features: [{ type: "island" }, { type: "ocean" }],
   vertices: {
     c: [
       [0, -1, -1],
@@ -50,5 +57,25 @@ describe("coastal assignment scene", () => {
 
     expect(scene.paths.some(path => path.role === "7")).toBe(true);
     expect(scene.paths.some(path => path.role === "8")).toBe(true);
+  });
+
+  it("does not extend assignments into lakes", () => {
+    const lakeSource: CoastalAssignmentSource = {
+      ...source,
+      features: [{ type: "island" }, { type: "lake" }]
+    };
+
+    const scene = buildCoastalAssignmentScene(lakeSource, Uint8Array.from([7, 0, 8]), "states");
+
+    expect(scene.paths.some(path => path.domainId === "states:7:1:2")).toBe(false);
+  });
+
+  it("reuses topology-derived shoreline edges across assignment changes", () => {
+    const edges = buildCoastalAssignmentEdges(source);
+    const assignments = Uint8Array.from([7, 0, 8]);
+
+    expect(buildCoastalAssignmentSceneFromEdges(edges, assignments, "states", "states:2")).toEqual(
+      buildCoastalAssignmentScene(source, assignments, "states", "states:2")
+    );
   });
 });

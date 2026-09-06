@@ -73,7 +73,7 @@ describe("GlyphAtlasCache", () => {
 
     expect(selectLabelAtlasResolution({ ...request, cameraScale: 1 })).toBe(1);
     expect(selectLabelAtlasResolution(request)).toBe(4);
-    expect(selectLabelAtlasResolution({ ...request, cameraScale: 20 })).toBe(8);
+    expect(selectLabelAtlasResolution({ ...request, cameraScale: 20 })).toBe(12);
     expect(selectLabelAtlasResolution({ ...request, cameraScale: 7, resizeOnZoom: false })).toBe(8);
 
     const fourXBudget = estimateGlyphAtlasBytes([...collectGlyphCharacters(group)].length, group.style, 4);

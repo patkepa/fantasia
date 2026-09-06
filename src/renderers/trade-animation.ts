@@ -29,6 +29,12 @@ export class TradeAnimationModule {
   private generation = 0;
   private cachedBatches: TradeBatch[] | null = null;
   private pathCache = new Map<string, TradePath | null>();
+  private pathScratch: {
+    distances: Float64Array;
+    previousCells: Int32Array;
+    previousStates: Int32Array;
+    touched: number[];
+  } | null = null;
 
   start(): void {
     if (!window.LayerControls.isLayerOn("toggleTrade")) return;
@@ -44,6 +50,7 @@ export class TradeAnimationModule {
     this.activeCount = 0;
     this.cachedBatches = null;
     this.pathCache.clear();
+    this.pathScratch = null;
     clear();
   }
 
@@ -150,13 +157,27 @@ export class TradeAnimationModule {
 
     // State encoding: stateId = cell * 2 + (isWater ? 1 : 0)
     const maxState = pack.cells.h.length * 2;
-    const distArr = new Float64Array(maxState).fill(Infinity);
-    const prevCellArr = new Int32Array(maxState).fill(-1);
-    const prevStateArr = new Int32Array(maxState).fill(-1); // -1 = came directly from startCell
+    if (this.pathScratch?.distances.length !== maxState) {
+      this.pathScratch = {
+        distances: new Float64Array(maxState).fill(Infinity),
+        previousCells: new Int32Array(maxState).fill(-1),
+        previousStates: new Int32Array(maxState).fill(-1),
+        touched: []
+      };
+    }
+    const { distances: distArr, previousCells: prevCellArr, previousStates: prevStateArr, touched } = this.pathScratch;
+    // Reset only states visited by the previous search, including searches that exited early.
+    for (const state of touched) {
+      distArr[state] = Infinity;
+      prevCellArr[state] = -1;
+      prevStateArr[state] = -1;
+    }
+    touched.length = 0;
 
     // Prevent startCell from ever being re-enqueued.
     distArr[startCell * 2] = 0;
     distArr[startCell * 2 + 1] = 0;
+    touched.push(startCell * 2, startCell * 2 + 1);
 
     const queue = new PriorityQueue<number>();
     for (const nextStr of Object.keys(startNeighbors)) {
@@ -165,6 +186,7 @@ export class TradeAnimationModule {
       const cost = water ? this.WATER_COST : this.LAND_COST;
       const state = next * 2 + (water ? 1 : 0);
       if (cost < distArr[state]) {
+        if (distArr[state] === Infinity) touched.push(state);
         distArr[state] = cost;
         prevCellArr[state] = startCell;
         queue.push(state, cost);
@@ -194,6 +216,7 @@ export class TradeAnimationModule {
         const nextState = next * 2 + (water ? 1 : 0);
 
         if (newCost < distArr[nextState]) {
+          if (distArr[nextState] === Infinity) touched.push(nextState);
           distArr[nextState] = newCost;
           prevCellArr[nextState] = cell;
           prevStateArr[nextState] = stateId;

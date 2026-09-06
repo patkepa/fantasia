@@ -1,4 +1,33 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Burg } from "./burgs-generator";
+
+describe("BurgsModule.defineGroup percentiles", () => {
+  beforeEach(async () => {
+    await import("./burgs-generator");
+    globalThis.options = {
+      burgs: {
+        groups: [
+          { name: "city", active: true, percentile: 50 },
+          { name: "town", active: true, isDefault: true }
+        ]
+      }
+    } as typeof options;
+  });
+
+  it.each([
+    { population: 1, group: "town" },
+    { population: 5, group: "town" },
+    { population: 10, group: "city" },
+    { population: 20, group: "city" },
+    { population: 15, group: "town" },
+    { population: NaN, group: "town" },
+    { population: undefined, group: "town" }
+  ])("preserves first-occurrence ranking for population $population", ({ population, group }) => {
+    const burg: Burg = { i: 1, cell: 0, x: 0, y: 0, population };
+    Burgs.defineGroup(burg, [1, 5, 5, 10, 20]);
+    expect(burg.group).toBe(group);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Minimal pack geometry used across all scenarios

@@ -87,6 +87,9 @@ export class LakesModule {
   detectCloseLakes(h: number[] | Uint8Array) {
     const { cells } = pack;
     const ELEVATION_LIMIT = +(ensureEl("lakeElevationLimitOutput") as HTMLInputElement)?.value;
+    const visited = new Uint32Array(cells.i.length);
+    const queue = new Int32Array(cells.i.length);
+    let visit = 0;
 
     pack.features.forEach(feature => {
       if (feature.type !== "lake") return;
@@ -100,15 +103,16 @@ export class LakesModule {
 
       let isDeep = true;
       const lowestShorelineCell = feature.shoreline.reduce((minCell, c) => (h[c] < h[minCell] ? c : minCell));
-      const queue = [lowestShorelineCell];
-      const checked = [];
-      checked[lowestShorelineCell] = true;
+      const visitId = ++visit;
+      let queueLength = 1;
+      queue[0] = lowestShorelineCell;
+      visited[lowestShorelineCell] = visitId;
 
-      while (queue.length && isDeep) {
-        const cellId: number = queue.pop() as number;
+      while (queueLength && isDeep) {
+        const cellId = queue[--queueLength];
 
         for (const neibCellId of cells.c[cellId]) {
-          if (checked[neibCellId]) continue;
+          if (visited[neibCellId] === visitId) continue;
           if (h[neibCellId] >= MAX_ELEVATION) continue;
 
           if (h[neibCellId] < 20) {
@@ -116,8 +120,8 @@ export class LakesModule {
             if (nFeature.type === "ocean" || feature.height > nFeature.height) isDeep = false;
           }
 
-          checked[neibCellId] = true;
-          queue.push(neibCellId);
+          visited[neibCellId] = visitId;
+          queue[queueLength++] = neibCellId;
         }
       }
 

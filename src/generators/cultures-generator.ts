@@ -1,6 +1,6 @@
 import { max, quadtree, range } from "d3";
 import { PriorityQueue } from "@/utils/priority-queue";
-import { abbreviate, biased, ensureEl, getColors, getRandomColor, minmax, P, rand, rn, rw } from "../utils";
+import { abbreviate, biased, getColors, getRandomColor, minmax, P, rand, rn, rw } from "../utils";
 
 declare global {
   var Cultures: CulturesGenerator;
@@ -37,23 +37,26 @@ export const DEFAULT_CULTURE_TYPE: CultureType = "Generic";
 export type CultureGenerationSettings = {
   neutralRate?: number;
   emblemShape?: string;
+  cultureSet?: string;
+  count?: number;
+  maxCount?: number;
+  sizeVariety?: number;
 };
 
-function showClimateWarning(messageHtml: string): void {
-  void import("@/components/ui/message-dialog").then(({ showMessageDialog }) => {
-    showMessageDialog({ id: "extremeClimateWarning", messageHtml, title: "Extreme climate warning" });
-  });
-}
+export type CultureGenerationWarning =
+  | { kind: "uninhabitable" }
+  | { kind: "limited"; populatedCells: number; requested: number; generated: number };
 
 class CulturesGenerator {
-  cells: any;
-
   getRandomShield() {
     const type = rw(COA.shields.types);
     return rw(COA.shields[type]);
   }
 
-  getDefault(count: number = 0): Omit<Culture, "i" | "type">[] {
+  getDefault(
+    count: number = 0,
+    { cultureSet = "world" }: CultureGenerationSettings = {}
+  ): Omit<Culture, "i" | "type">[] {
     // generic sorting functions
     const cells = pack.cells,
       s = cells.s,
@@ -70,7 +73,7 @@ class CulturesGenerator {
     const sf = (cell: number, fee = 4) =>
       cells.haven[cell] && pack.features[cells.f[cells.haven[cell]]].type !== "lake" ? 1 : fee; // not on sea coast fee
 
-    if (culturesSet.value === "european") {
+    if (cultureSet === "european") {
       return [
         {
           name: "Shwazen",
@@ -180,7 +183,7 @@ class CulturesGenerator {
       ];
     }
 
-    if (culturesSet.value === "oriental") {
+    if (cultureSet === "oriental") {
       return [
         {
           name: "Koryo",
@@ -276,7 +279,7 @@ class CulturesGenerator {
       ];
     }
 
-    if (culturesSet.value === "english") {
+    if (cultureSet === "english") {
       const getName = () => Names.getBase(1, 5, 9, "");
       return [
         { name: getName(), base: 1, odd: 1, shield: "heater" },
@@ -292,7 +295,7 @@ class CulturesGenerator {
       ];
     }
 
-    if (culturesSet.value === "antique") {
+    if (cultureSet === "antique") {
       return [
         {
           name: "Roman",
@@ -409,7 +412,7 @@ class CulturesGenerator {
       ];
     }
 
-    if (culturesSet.value === "highFantasy") {
+    if (cultureSet === "highFantasy") {
       return [
         // fantasy races
         {
@@ -535,7 +538,7 @@ class CulturesGenerator {
       ];
     }
 
-    if (culturesSet.value === "darkFantasy") {
+    if (cultureSet === "darkFantasy") {
       return [
         // common real-world English
         {
@@ -782,7 +785,7 @@ class CulturesGenerator {
       ];
     }
 
-    if (culturesSet.value === "random") {
+    if (cultureSet === "random") {
       return range(count).map(() => {
         const rnd = rand(Names.nameBases.length - 1);
         const name = Names.getBaseShort(rnd);
@@ -1026,15 +1029,15 @@ class CulturesGenerator {
     ];
   }
 
-  generate() {
+  generate(settings: CultureGenerationSettings = {}): CultureGenerationWarning[] {
+    const warnings: CultureGenerationWarning[] = [];
     TIME && console.time("generateCultures");
-    this.cells = pack.cells;
-    const cultureIds = new Uint16Array(this.cells.i.length); // cell cultures
+    const cells = pack.cells;
+    const cultureIds = new Uint16Array(cells.i.length); // cell cultures
 
-    const culturesInputNumber = +(ensureEl("culturesInput") as HTMLInputElement).value;
-    const culturesInSetNumber = +((ensureEl("culturesSet") as HTMLSelectElement).selectedOptions[0].dataset.max ?? "0");
+    const { count: culturesInputNumber = 12, maxCount: culturesInSetNumber = 32, sizeVariety = 1 } = settings;
     let count = Math.min(culturesInputNumber, culturesInSetNumber);
-    const populated = this.cells.i.filter((i: number) => this.cells.s[i]); // populated cells
+    const populated = cells.i.filter((i: number) => cells.s[i]); // populated cells
 
     if (populated.length < count * 25) {
       count = Math.floor(populated.length / 50);
@@ -1049,22 +1052,24 @@ class CulturesGenerator {
             type: DEFAULT_CULTURE_TYPE
           }
         ];
-        this.cells.culture = cultureIds;
+        cells.culture = cultureIds;
 
-        showClimateWarning(/* html */ `The climate is harsh and people cannot live in this world.<br />
-          No cultures, states and burgs will be created.<br />
-          Please consider changing climate settings in the World Configurator`);
-        return;
+        warnings.push({ kind: "uninhabitable" });
+        TIME && console.timeEnd("generateCultures");
+        return warnings;
       } else {
         WARN && console.warn(`Not enough populated cells (${populated.length}). Will generate only ${count} cultures`);
-        showClimateWarning(/* html */ ` There are only ${populated.length} populated cells and it's insufficient livable area.<br />
-          Only ${count} out of ${culturesInput.value} requested cultures will be generated.<br />
-          Please consider changing climate settings in the World Configurator`);
+        warnings.push({
+          kind: "limited",
+          populatedCells: populated.length,
+          requested: culturesInputNumber,
+          generated: count
+        });
       }
     }
 
     const selectCultures = (culturesNumber: number): Culture[] => {
-      const defaultCultures = this.getDefault(culturesNumber);
+      const defaultCultures = this.getDefault(culturesNumber, settings);
       const cultures: Culture[] = [];
 
       pack.cultures?.forEach(culture => {
@@ -1090,9 +1095,9 @@ class CulturesGenerator {
 
     const cultures = selectCultures(count);
     pack.cultures = cultures;
-    const centers = quadtree<number>();
+    const centers = quadtree<[number, number]>();
     const colors = getColors(count);
-    const emblemShape = (ensureEl("emblemShape") as HTMLInputElement).value;
+    const { emblemShape = "random" } = settings;
 
     const codes: string[] = [];
 
@@ -1107,7 +1112,7 @@ class CulturesGenerator {
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
         cellId = sorted[biased(0, max, 5)];
         spacing *= 0.9;
-        if (!cultureIds[cellId] && !centers.find(this.cells.p[cellId][0], this.cells.p[cellId][1], spacing)) break;
+        if (!cultureIds[cellId] && !centers.find(cells.p[cellId][0], cells.p[cellId][1], spacing)) break;
       }
 
       return cellId;
@@ -1115,18 +1120,18 @@ class CulturesGenerator {
 
     // set culture type based on culture center position
     const defineCultureType = (i: number) => {
-      if (this.cells.h[i] < 70 && [1, 2, 4].includes(this.cells.biome[i])) return "Nomadic"; // high penalty in forest biomes and near coastline
-      if (this.cells.h[i] > 50) return "Highland"; // no penalty for hills and mountains, high for other elevations
-      const f = pack.features[this.cells.f[this.cells.haven[i]]]; // opposite feature
+      if (cells.h[i] < 70 && [1, 2, 4].includes(cells.biome[i])) return "Nomadic"; // high penalty in forest biomes and near coastline
+      if (cells.h[i] > 50) return "Highland"; // no penalty for hills and mountains, high for other elevations
+      const f = pack.features[cells.f[cells.haven[i]]]; // opposite feature
       if (f.type === "lake" && f.cells > 5) return "Lake"; // low water cross penalty and high for growth not along coastline
       if (
-        (this.cells.harbor[i] && f.type !== "lake" && P(0.1)) ||
-        (this.cells.harbor[i] === 1 && P(0.6)) ||
-        (pack.features[this.cells.f[i]].group === "isle" && P(0.4))
+        (cells.harbor[i] && f.type !== "lake" && P(0.1)) ||
+        (cells.harbor[i] === 1 && P(0.6)) ||
+        (pack.features[cells.f[i]].group === "isle" && P(0.4))
       )
         return "Naval"; // low water cross penalty and high for non-along-coastline growth
-      if (this.cells.r[i] && this.cells.fl[i] > 100) return "River"; // no River cross penalty, penalty for non-River growth
-      if (this.cells.t[i] > 2 && [3, 7, 8, 9, 10, 12].includes(this.cells.biome[i])) return "Hunting"; // high penalty in non-native biomes
+      if (cells.r[i] && cells.fl[i] > 100) return "River"; // no River cross penalty, penalty for non-River growth
+      if (cells.t[i] > 2 && [3, 7, 8, 9, 10, 12].includes(cells.biome[i])) return "Hunting"; // high penalty in non-native biomes
       return DEFAULT_CULTURE_TYPE;
     };
 
@@ -1138,7 +1143,7 @@ class CulturesGenerator {
       else if (type === "Nomadic") base = 1.5;
       else if (type === "Hunting") base = 0.7;
       else if (type === "Highland") base = 1.2;
-      return rn(((Math.random() * (ensureEl("sizeVariety") as HTMLInputElement).valueAsNumber) / 2 + 1) * base, 1);
+      return rn(((Math.random() * sizeVariety) / 2 + 1) * base, 1);
     };
 
     cultures.forEach((c: Culture, i: number) => {
@@ -1146,20 +1151,20 @@ class CulturesGenerator {
 
       if (c.lock) {
         codes.push(c.code as string);
-        centers.add(c.center as number);
+        centers.add(cells.p[c.center!]);
 
-        for (const i of this.cells.i) {
-          if (this.cells.culture[i] === c.i) cultureIds[i] = newId;
+        for (const i of cells.i) {
+          if (cells.culture[i] === c.i) cultureIds[i] = newId;
         }
 
         c.i = newId;
         return;
       }
 
-      const sortingFn = c.sort ? c.sort : (i: number) => this.cells.s[i];
+      const sortingFn = c.sort ? c.sort : (i: number) => cells.s[i];
       const center = placeCenter(sortingFn);
 
-      centers.add(this.cells.p[center]);
+      centers.add(cells.p[center]);
       c.center = center;
       c.i = newId;
       delete c.odd;
@@ -1174,7 +1179,7 @@ class CulturesGenerator {
       if (emblemShape === "random") c.shield = this.getRandomShield();
     });
 
-    this.cells.culture = cultureIds;
+    cells.culture = cultureIds;
 
     // the first culture with id 0 is for wildlands
     cultures.unshift({
@@ -1197,10 +1202,12 @@ class CulturesGenerator {
     });
 
     TIME && console.timeEnd("generateCultures");
+    return warnings;
   }
 
-  add(center: number, { emblemShape = "random" }: CultureGenerationSettings = {}) {
-    const defaultCultures = this.getDefault();
+  add(center: number, settings: CultureGenerationSettings = {}) {
+    const { emblemShape = "random" } = settings;
+    const defaultCultures = this.getDefault(0, settings);
     let culture: number, base: number, name: string;
 
     if (pack.cultures.length < defaultCultures.length) {
@@ -1331,9 +1338,9 @@ class CulturesGenerator {
     TIME && console.timeEnd("expandCultures");
   }
 
-  regenerate(): void {
-    this.generate();
-    this.expand();
+  regenerate(settings: CultureGenerationSettings = {}): CultureGenerationWarning[] {
+    const warnings = this.generate(settings);
+    this.expand(settings);
 
     pack.states = pack.states.map(state =>
       !state.i || state.removed ? state : { ...state, culture: pack.cells.culture[state.center] }
@@ -1344,7 +1351,12 @@ class CulturesGenerator {
     pack.religions = pack.religions.map(religion =>
       !religion.i || religion.removed ? religion : { ...religion, culture: pack.cells.culture[religion.center] }
     );
+    return warnings;
   }
 }
 
-window.Cultures = new CulturesGenerator();
+// biome-ignore lint/suspicious/noRedeclare: exported module API and its browser compatibility declaration
+export const Cultures = new CulturesGenerator();
+
+// The application UI installs the legacy control-reading facade during bootstrap.
+window.Cultures = Cultures;

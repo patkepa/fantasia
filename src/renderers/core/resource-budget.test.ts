@@ -42,6 +42,7 @@ describe("RendererResourceTracker", () => {
       glyph: 24 * 1024 * 1024,
       texture: 96 * 1024 * 1024
     });
+    expect(selectRendererResourceBudget(8).glyph).toBe(192 * 1024 * 1024);
     expect(selectRendererResourceBudget(4).texture).toBe(192 * 1024 * 1024);
     expect(selectRendererResourceBudget(8).texture).toBe(256 * 1024 * 1024);
   });

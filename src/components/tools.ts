@@ -1,7 +1,9 @@
 import { requireWorkspaceCapability } from "@/application/workspace-mode";
 import { refreshEditors } from "@/components/dialog/dialog-helpers";
 import { tip } from "@/components/tooltips";
+import { getCulturePlacementSettings, showCultureGenerationWarnings } from "@/controllers/culture-generation-settings";
 import { getStateExpansionSettings } from "@/controllers/state-generation-settings";
+import { Cultures } from "@/generators/cultures-generator";
 import { Population } from "@/generators/population-generator";
 import { drawBorders } from "@/renderers/draw-borders";
 import { clearEmblems, drawEmblems } from "@/renderers/draw-emblems";
@@ -204,7 +206,7 @@ function regenerateReligions(): void {
 }
 
 function regenerateCultures(): void {
-  Cultures.regenerate();
+  showCultureGenerationWarnings(Cultures.regenerate(getCulturePlacementSettings()));
   if (window.LayerControls.isLayerOn("toggleCultures")) window.LayerControls.redrawLayer("toggleCultures");
   if (window.LayerControls.isLayerOn("toggleGoods")) drawGoods();
 }
