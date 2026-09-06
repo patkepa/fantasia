@@ -4,6 +4,13 @@ vi.mock("@/components/tooltips", () => ({ tip: vi.fn() }));
 
 beforeAll(() => {
   vi.stubGlobal(
+    "HTMLSelectElement",
+    class {
+      options: Array<{ value: string }> = [];
+      append = vi.fn();
+    }
+  );
+  vi.stubGlobal(
     "FontFace",
     class {
       constructor(
@@ -14,10 +21,7 @@ beforeAll(() => {
   );
   Object.defineProperty(document, "fonts", { configurable: true, value: { add: vi.fn() } });
   document.createElement = vi.fn(() => ({ style: {} })) as unknown as typeof document.createElement;
-  document.getElementById = vi.fn(() => ({
-    addEventListener: vi.fn(),
-    append: vi.fn()
-  })) as unknown as typeof document.getElementById;
+  document.getElementById = vi.fn(() => new HTMLSelectElement()) as unknown as typeof document.getElementById;
   vi.stubGlobal("style", {
     labels: { groups: { states: { "font-family": "Cinzel" } } }
   });
