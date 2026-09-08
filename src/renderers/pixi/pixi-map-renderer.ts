@@ -353,6 +353,8 @@ export class PixiMapRenderer implements MapRenderer {
   private pickingIndex = new MapPickingIndex();
   private pickSceneSources: MapPickSceneSources = {};
   private rebuildSequence = 0;
+  private activeRender: Promise<void> | null = null;
+  private renderGeneration = 0;
   private retainedCellMeshes = new Set<RetainedCellMesh>();
   private reliefTextureHandles = new Set<RendererResourceHandle<Texture>>();
   private rendererFilters = new Set<{ destroy(): void }>();
@@ -453,9 +455,11 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   async render(world: MapRenderWorld, style: MapStyle, invalidation: RenderInvalidationBatch): Promise<void> {
-    this.world = world;
-    this.semanticStyle = structuredClone(style);
-    await this.renderInvalidations(invalidation);
+    await this.runRender(() => {
+      this.world = world;
+      this.semanticStyle = structuredClone(style);
+      return this.renderInvalidations(invalidation);
+    });
   }
 
   queueRender(world: MapRenderWorld, style: MapStyle, invalidation: RenderInvalidation): void {
@@ -733,6 +737,7 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   clear(): void {
+    this.renderGeneration++;
     this.rebuildSequence++;
     if (this.adaptiveQualityTimer !== null) clearTimeout(this.adaptiveQualityTimer);
     this.adaptiveQualityTimer = null;
@@ -749,6 +754,7 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   destroy(): void {
+    this.renderGeneration++;
     this.rebuildSequence++;
     if (this.resizeFrameId !== null) cancelAnimationFrame(this.resizeFrameId);
     this.resizeFrameId = null;
@@ -2502,9 +2508,24 @@ export class PixiMapRenderer implements MapRenderer {
   }
 
   private createScheduler(): RenderScheduler {
-    return new RenderScheduler(batch => this.renderInvalidations(batch), {
+    return new RenderScheduler(batch => this.runRender(() => this.renderInvalidations(batch)), {
       onDiagnostic: diagnostic => this.recordPerformance("pixi:scheduled", diagnostic.duration)
     });
+  }
+
+  private async runRender(render: () => Promise<void>): Promise<void> {
+    const generation = this.renderGeneration;
+    // Startup renders bypass the scheduler. Share its serialization boundary so queued rebuilds cannot cancel a
+    // startup frame while it awaits textures and leave the controller with no committed frame.
+    while (this.activeRender) await this.activeRender.catch(() => undefined);
+    if (generation !== this.renderGeneration) return;
+    const task = render();
+    this.activeRender = task;
+    try {
+      await task;
+    } finally {
+      this.activeRender = null;
+    }
   }
 
   private async renderInvalidations(batch: RenderInvalidationBatch): Promise<void> {

@@ -655,6 +655,38 @@ describe("PixiMapRenderer lifecycle", () => {
     expect(renderer.getSnapshot()).toMatchObject({ enabled: false, resourceBytes: 0, resourceCount: 0 });
   });
 
+  it("does not let a scheduled rebuild supersede the initial frame while textures load", async () => {
+    let frame: FrameRequestCallback | undefined;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frame = callback;
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    let resolveTexture!: (texture: never) => void;
+    const texture = new Promise<never>(resolve => {
+      resolveTexture = resolve;
+    });
+    applicationState.assetLoad.mockImplementationOnce(() => texture);
+    const renderer = new PixiMapRenderer();
+    const style = structuredClone(DEFAULT_PIXI_MAP_STYLE);
+    style.texture.href = "startup-texture.png";
+    await renderer.mount(createSurface());
+
+    const initial = renderer.render(STATIC_VIEWER_WORLD, style, coalesceInvalidations([{ kind: "world" }]));
+    const ocean = applicationState.stage?.children.find(child => child.label === "ocean");
+    renderer.queueRender(STATIC_VIEWER_WORLD, style, { kind: "world" });
+    frame?.(performance.now());
+    const oceanDuringStartup = applicationState.stage?.children.find(child => child.label === "ocean");
+
+    resolveTexture({ destroy: vi.fn(), height: 8, width: 8 } as never);
+    await initial;
+    const initialCommit = renderer.getSnapshot().commitSequence;
+    await renderer.whenCommitted(1);
+    renderer.destroy();
+    expect(oceanDuringStartup).toBe(ocean);
+    expect(initialCommit).toBeGreaterThan(0);
+  });
+
   it("renders synchronous map geometry before an optional texture resolves", async () => {
     const onSceneChange = vi.fn();
     let resolveTexture: ((texture: never) => void) | undefined;
