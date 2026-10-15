@@ -10,8 +10,6 @@ export default defineConfig({
   retries: 0,
   workers: isCI ? 2 : undefined,
   reporter: 'html',
-  // Use OS-independent snapshot names (HTML content is the same across platforms)
-  snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}',
   use: {
     baseURL: isCI ? 'http://localhost:4173' : 'http://localhost:5173',
     trace: 'on-first-retry',
