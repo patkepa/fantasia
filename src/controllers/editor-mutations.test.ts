@@ -213,25 +213,35 @@ describe("editor mutations", () => {
   });
 
   it("moves a feature vertex and reports dependent geometry layers", () => {
-    const graph = {
-      features: [{ area: 4, i: 2, vertices: [0, 1, 2, 3] }],
-      vertices: {
-        c: [[0], [0, 1], [0], [0]],
-        p: [
-          [0, 0],
-          [2, 0],
-          [2, 2],
-          [0, 2]
-        ]
-      }
-    } as unknown as Pick<PackedGraph, "features" | "vertices">;
-    expect(moveFeatureVertex(graph, 2, 1, [3, 0])).toMatchObject({
-      affectedCellIds: [0, 1],
-      affectedDomainIds: [2],
-      changed: true
-    });
-    expect(graph.features[0].area).toBe(5);
-    expect(graph.vertices.p[1]).toEqual([3, 0]);
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("dispatchEvent", dispatchEvent);
+    try {
+      const graph = {
+        features: [{ area: 4, i: 2, vertices: [0, 1, 2, 3] }],
+        vertices: {
+          c: [[0], [0, 1], [0], [0]],
+          p: [
+            [0, 0],
+            [2, 0],
+            [2, 2],
+            [0, 2]
+          ]
+        }
+      } as unknown as Pick<PackedGraph, "features" | "vertices">;
+      expect(moveFeatureVertex(graph, 2, 1, [3, 0])).toMatchObject({
+        affectedCellIds: [0, 1],
+        affectedDomainIds: [2],
+        changed: true
+      });
+      expect(graph.features[0].area).toBe(5);
+      expect(graph.vertices.p[1]).toEqual([3, 0]);
+      expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: MAP_MUTATED_EVENT }));
+      dispatchEvent.mockClear();
+      moveFeatureVertex(graph, 2, 1, [3, 0]);
+      expect(dispatchEvent).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("changes a feature's semantic renderer group", () => {

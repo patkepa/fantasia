@@ -5,6 +5,7 @@ import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { LayerControls } from "@/components/layers/layer-controls";
 import { tip } from "@/components/tooltips";
 import { Services } from "@/services";
+import { documentDirtyState } from "@/services/document-dirty-state";
 import { getUsedFonts } from "@/services/fonts";
 import { LocalMapStorage } from "@/services/io/local-map-storage";
 import { VERSION } from "@/services/versioning";
@@ -19,6 +20,7 @@ async function saveMap(method: SaveMethod): Promise<void> {
   if (customization) return tip("Map cannot be saved in EDIT mode, please complete the edit and retry", false, "error");
   closeDialogs();
 
+  const revision = documentDirtyState.getRevision();
   try {
     const mapData = await prepareMapData();
     const filename = `${getFileName()}.map`;
@@ -26,6 +28,7 @@ async function saveMap(method: SaveMethod): Promise<void> {
     if (method === "storage") await saveToStorage(mapData, true);
     if (method === "machine") saveToMachine(mapData, filename);
     if (method === "dropbox") await saveToDropbox(mapData, filename);
+    documentDirtyState.markSaved(revision);
     window.dispatchEvent(new Event("map:saved"));
   } catch (error) {
     ERROR && console.error(error);

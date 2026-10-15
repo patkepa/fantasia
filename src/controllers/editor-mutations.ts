@@ -206,6 +206,7 @@ export function moveFeatureVertex(
   if (previous[0] === point[0] && previous[1] === point[1]) return unchangedFeatureGeometry();
   graph.vertices.p[vertexId] = point;
   feature.area = Math.abs(getPolygonArea(feature.vertices.map(id => graph.vertices.p[id])));
+  notifyMapMutation("editor:feature-geometry");
   return {
     affectedCellIds: graph.vertices.c[vertexId]?.filter(cellId => cellId >= 0) ?? [],
     affectedDomainIds: [featureId],

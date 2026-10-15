@@ -474,7 +474,7 @@ function getFriendlyHeight(h: number): string {
 
 // Exit customization mode
 function finalizeHeightmap(): void {
-  if (select<SVGElement, unknown>("#viewbox").select("#heights").selectAll("*").size() < 200) {
+  if (grid.cells.h.reduce((count: number, height: number) => count + Number(height >= 20), 0) < 200) {
     tip("Insufficient land area. There should be at least 200 land cells!", false, "error");
     return;
   }
@@ -1121,6 +1121,7 @@ function renderBrushesPanel(): void {
   </div>`;
   ensureEl("dialogs").insertAdjacentHTML("beforeend", html);
   addBrushesListeners();
+  setHistoryButtonsDisabled(!history.canUndo, !history.canRedo);
 }
 
 function closeBrushesPanel(): void {
@@ -1532,6 +1533,7 @@ function startFromScratch(): void {
 function openTemplateEditor(): void {
   if (document.getElementById("templateEditor")) return;
   renderTemplateEditor();
+  setHistoryButtonsDisabled(!history.canUndo, !history.canRedo);
 
   showDomDialog({
     content: ensureEl("templateEditor"),
