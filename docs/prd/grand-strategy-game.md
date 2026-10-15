@@ -2,6 +2,10 @@
 
 ## Status
 
+For the warfare-first implementation sequence, current code baseline, acceptance gates, and performance targets, see
+[Grand strategy implementation plan](grand-strategy-implementation-plan.md). The plan supersedes this note's roadmap
+and historical Pixi prototype assumptions; the feasibility analysis below is retained as background.
+
 This is an exploratory product and architecture note. It is not an active implementation plan or a commitment to
 turn Fantasia into a game.
 
