@@ -2,6 +2,25 @@
 
 Fantasia exposes most of its data into the global namespace.
 
+## Save capture boundary
+
+`src/services/io/save.ts` captures browser-owned settings, SVG compatibility data, fonts, and icons.
+`captureMapDocument` in `src/services/io/map-document.ts` synchronously detaches the map, full grid/pack
+topology, named unit settings, options, style, notes, and name bases. It selects only document fields,
+excluding session and renderer resources, and has no runtime browser or application-state dependencies.
+The returned data is owned by its caller; it is detached rather than recursively frozen.
+
+`createLegacyMapSaveSource` translates named settings and metadata into legacy fields, and
+`createMapSaveSections` assembles the persisted sections without cloning the detached document again.
+SVG compatibility content remains in the browser adapter. Campaign compilation can consume the full
+document snapshot without reading UI controls or reloading a `.map` file.
+
+The `.map` format remains the existing 50 CRLF-separated sections, including reserved empty slots
+and population rounding to four decimal places during encoding. The captured sections retain
+unrounded numeric values. A document snapshot is not yet a normalized campaign definition. Campaign
+province mapping, rules, and campaign codecs remain separate work; typed arrays in the in-memory
+snapshot must not be JSON-stringified without a symmetric codec.
+
 # Basic objects
 
 Fantasia has two meta-objects storing most of the map data:

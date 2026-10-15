@@ -19,6 +19,7 @@
     "benchmark:renderer": "playwright test --config=tests/benchmarks/playwright.config.ts",
     "preview": "vite preview",
     "test": "vitest",
+    "test:headless": "vitest run --config config/vitest.headless.config.ts",
     "test:e2e": "playwright test",
     "lint": "biome check",
     "lint:fix": "biome check --write",

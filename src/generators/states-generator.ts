@@ -19,6 +19,7 @@ import {
   trimVowels
 } from "../utils";
 import type { Regiment } from "./military-generator";
+import { calculateTaxRevenue } from "./tax-calculation";
 
 declare global {
   var States: StatesModule;
@@ -860,34 +861,8 @@ class StatesModule {
   }
 
   collectTaxes() {
-    const { states, burgs, deals } = pack;
-    if (!states.length) return;
-    for (const state of states) {
-      if (!state.i || state.removed) continue;
-      state.treasury = 0;
-    }
-
-    for (const deal of deals) {
-      if (!deal.tax) continue;
-
-      let sellerStateId = 0;
-      if (deal.sellerType === "burg") {
-        sellerStateId = burgs?.[deal.seller]?.state || 0;
-      } else if (deal.sellerType === "market") {
-        const market = Markets.get(deal.seller);
-        const centerBurgId = market?.centerBurgId;
-        sellerStateId = centerBurgId ? burgs?.[centerBurgId]?.state || 0 : 0;
-      }
-      if (!sellerStateId) continue;
-      const state = states[sellerStateId];
-      if (!state || state.removed) continue;
-      state.treasury += deal.tax;
-    }
-
-    for (const state of states) {
-      if (!state.i || state.removed) continue;
-      const population = (state.rural || 0) + (state.urban || 0);
-      state.treasury = rn(state.treasury + state.pollTax * population, 2);
+    for (const [stateId, revenue] of calculateTaxRevenue(pack)) {
+      pack.states[stateId].treasury = revenue.total;
     }
   }
 

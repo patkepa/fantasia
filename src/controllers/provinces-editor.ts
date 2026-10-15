@@ -17,6 +17,10 @@ import { showDomDialog } from "@/components/ui/dom-dialog";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
 import { selectTerritoryEditorRow, TerritoryAssignmentSession } from "@/controllers/territory-editor-utils";
+import {
+  getProvincePopulation as calculateProvincePopulation,
+  getProvinceStatistics
+} from "@/generators/province-statistics";
 import type { Province } from "@/generators/provinces-generator";
 import { renderBurgChanged } from "@/renderers/burg-mutations";
 import { drawBorders } from "@/renderers/draw-borders";
@@ -38,7 +42,7 @@ const position = { my: "right top", at: "right-10 top+10", of: "svg", collision:
 let provincesAssignment: TerritoryAssignmentSession | null = null;
 const getProvinceArea = (province: Province) => getArea(province.area!);
 const getProvincePopulation = (province: Province) =>
-  rn(province.rural! * populationRate + province.urban! * populationRate * urbanization);
+  rn(calculateProvincePopulation(province, { populationRate, urbanization }).total);
 const columns: EditorColumn<Province>[] = [
   { key: "color", width: "1.2em", permanent: true },
   {
@@ -247,30 +251,13 @@ function refreshProvincesEditor(): void {
 }
 
 function collectStatistics(): void {
-  const { cells, provinces, burgs } = pack;
-
-  provinces.forEach(p => {
-    if (!p.i || p.removed) return;
-    p.area = p.rural = p.urban = 0;
-    p.burgs = [];
-    if ((p.burg && !burgs[p.burg]) || burgs[p.burg]?.removed) p.burg = 0;
-  });
-
-  for (const i of cells.i) {
-    const p = cells.province[i];
-    if (!p) continue;
-
-    provinces[p].area! += cells.area[i];
-    provinces[p].rural! += cells.pop[i];
-    if (!cells.burg[i]) continue;
-    provinces[p].urban! += burgs[cells.burg[i]].population ?? 0;
-    provinces[p].burgs!.push(cells.burg[i]);
+  for (const [id, statistics] of getProvinceStatistics(pack)) {
+    const province = pack.provinces[id];
+    Object.assign(province, statistics);
+    // Preserve the editor's capital repair behavior outside the read-only query.
+    if ((province.burg && !pack.burgs[province.burg]) || pack.burgs[province.burg]?.removed) province.burg = 0;
+    if (!province.burg && statistics.burgs.length) province.burg = statistics.burgs[0];
   }
-
-  provinces.forEach(p => {
-    if (!p.i || p.removed) return;
-    if (!p.burg && p.burgs!.length) p.burg = p.burgs![0];
-  });
 }
 
 function updateFilter(): void {
@@ -306,8 +293,7 @@ function renderProvincesPage(view: TableView<Province>): void {
   const lines = view.rows
     .map(p => {
       const area = getProvinceArea(p);
-      const rural = p.rural! * populationRate;
-      const urban = p.urban! * populationRate * urbanization;
+      const { rural, urban } = calculateProvincePopulation(p, { populationRate, urbanization });
       const population = getProvincePopulation(p);
       const populationTip = `Total population: ${si(population)}; Rural population: ${si(rural)}; Urban population: ${si(urban)}`;
       const stateName = pack.states[p.state].name;
@@ -561,8 +547,9 @@ function changePopulation(province: number): void {
     tip("Province does not have any cells, cannot change population", false, "error");
     return;
   }
-  const rural = rn(p.rural! * populationRate);
-  const urban = rn(p.urban! * populationRate * urbanization);
+  const population = calculateProvincePopulation(p, { populationRate, urbanization });
+  const rural = rn(population.rural);
+  const urban = rn(population.urban);
   const total = rural + urban;
   const l = (n: number): string => Number(n).toLocaleString();
 

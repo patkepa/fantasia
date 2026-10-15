@@ -4,11 +4,17 @@ import { applySorting, applySortingByHeader } from "@/components/dialog/sorting"
 import { tip } from "@/components/tooltips";
 import { showDomDialog } from "@/components/ui/dom-dialog";
 import { moveMilitaryRegiment, replaceMilitaryRegimentUnits } from "@/controllers/editor-mutations";
+import {
+  calculateBattleCasualtyRates,
+  calculateBattleMorale,
+  calculateBattleStrength,
+  calculateUnitLosses
+} from "@/generators/battle-calculation";
 import { drawMilitary } from "@/renderers/draw-military";
 import { invalidateMarkerSymbols } from "@/renderers/point-symbols";
 import type { Marker } from "../generators/markers-generator";
 import type { Regiment } from "../generators/military-generator";
-import { capitalize, ensureEl, getAdjective, last, list, minmax, P, Pint, rand, rn, wiki } from "../utils";
+import { capitalize, ensureEl, getAdjective, last, list, minmax, P, rand, rn, wiki } from "../utils";
 
 type Side = "attackers" | "defenders";
 
@@ -730,173 +736,10 @@ function getJoinedForces(regiments: Regiment[]): Record<string, number> {
 
 function calculateStrength(side: Side): void {
   const b = battle!;
-  const scheme: Record<string, Record<string, number>> = {
-    // field battle phases
-    skirmish: {
-      melee: 0.2,
-      ranged: 2.4,
-      mounted: 0.1,
-      machinery: 3,
-      naval: 1,
-      armored: 0.2,
-      aviation: 1.8,
-      magical: 1.8
-    }, // ranged excel
-    melee: { melee: 2, ranged: 1.2, mounted: 1.5, machinery: 0.5, naval: 0.2, armored: 2, aviation: 0.8, magical: 0.8 }, // melee excel
-    pursue: { melee: 1, ranged: 1, mounted: 4, machinery: 0.05, naval: 1, armored: 1, aviation: 1.5, magical: 0.6 }, // mounted excel
-    retreat: {
-      melee: 0.1,
-      ranged: 0.01,
-      mounted: 0.5,
-      machinery: 0.01,
-      naval: 0.2,
-      armored: 0.1,
-      aviation: 0.8,
-      magical: 0.05
-    }, // reduced
-
-    // naval battle phases
-    shelling: { melee: 0, ranged: 0.2, mounted: 0, machinery: 2, naval: 2, armored: 0, aviation: 0.1, magical: 0.5 }, // naval and machinery excel
-    boarding: {
-      melee: 1,
-      ranged: 0.5,
-      mounted: 0.5,
-      machinery: 0,
-      naval: 0.5,
-      armored: 0.4,
-      aviation: 0,
-      magical: 0.2
-    }, // melee excel
-    chase: { melee: 0, ranged: 0.15, mounted: 0, machinery: 1, naval: 1, armored: 0, aviation: 0.15, magical: 0.5 }, // reduced
-    withdrawal: {
-      melee: 0,
-      ranged: 0.02,
-      mounted: 0,
-      machinery: 0.5,
-      naval: 0.1,
-      armored: 0,
-      aviation: 0.1,
-      magical: 0.3
-    }, // reduced
-
-    // siege phases
-    blockade: {
-      melee: 0.25,
-      ranged: 0.25,
-      mounted: 0.2,
-      machinery: 0.5,
-      naval: 0.2,
-      armored: 0.1,
-      aviation: 0.25,
-      magical: 0.25
-    }, // no active actions
-    sheltering: {
-      melee: 0.3,
-      ranged: 0.5,
-      mounted: 0.2,
-      machinery: 0.5,
-      naval: 0.2,
-      armored: 0.1,
-      aviation: 0.25,
-      magical: 0.25
-    }, // no active actions
-    sortie: { melee: 2, ranged: 0.5, mounted: 1.2, machinery: 0.2, naval: 0.1, armored: 0.5, aviation: 1, magical: 1 }, // melee excel
-    bombardment: {
-      melee: 0.2,
-      ranged: 0.5,
-      mounted: 0.2,
-      machinery: 3,
-      naval: 1,
-      armored: 0.5,
-      aviation: 1,
-      magical: 1
-    }, // machinery excel
-    storming: {
-      melee: 1,
-      ranged: 0.6,
-      mounted: 0.5,
-      machinery: 1,
-      naval: 0.1,
-      armored: 0.1,
-      aviation: 0.5,
-      magical: 0.5
-    }, // melee excel
-    defense: { melee: 2, ranged: 3, mounted: 1, machinery: 1, naval: 0.1, armored: 1, aviation: 0.5, magical: 1 }, // ranged excel
-    looting: {
-      melee: 1.6,
-      ranged: 1.6,
-      mounted: 0.5,
-      machinery: 0.2,
-      naval: 0.02,
-      armored: 0.2,
-      aviation: 0.1,
-      magical: 0.3
-    }, // melee excel
-    surrendering: {
-      melee: 0.1,
-      ranged: 0.1,
-      mounted: 0.05,
-      machinery: 0.01,
-      naval: 0.01,
-      armored: 0.02,
-      aviation: 0.01,
-      magical: 0.03
-    }, // reduced
-
-    // ambush phases
-    surprise: { melee: 2, ranged: 2.4, mounted: 1, machinery: 1, naval: 1, armored: 1, aviation: 0.8, magical: 1.2 }, // increased
-    shock: {
-      melee: 0.5,
-      ranged: 0.5,
-      mounted: 0.5,
-      machinery: 0.4,
-      naval: 0.3,
-      armored: 0.1,
-      aviation: 0.4,
-      magical: 0.5
-    }, // reduced
-
-    // landing phases
-    landing: {
-      melee: 0.8,
-      ranged: 0.6,
-      mounted: 0.6,
-      machinery: 0.5,
-      naval: 0.5,
-      armored: 0.5,
-      aviation: 0.5,
-      magical: 0.6
-    }, // reduced
-    flee: {
-      melee: 0.1,
-      ranged: 0.01,
-      mounted: 0.5,
-      machinery: 0.01,
-      naval: 0.5,
-      armored: 0.1,
-      aviation: 0.2,
-      magical: 0.05
-    }, // reduced
-    waiting: {
-      melee: 0.05,
-      ranged: 0.5,
-      mounted: 0.05,
-      machinery: 0.5,
-      naval: 2,
-      armored: 0.05,
-      aviation: 0.5,
-      magical: 0.5
-    }, // reduced
-
-    // air battle phases
-    maneuvering: { melee: 0, ranged: 0.1, mounted: 0, machinery: 0.2, naval: 0, armored: 0, aviation: 1, magical: 0.2 }, // aviation
-    dogfight: { melee: 0, ranged: 0.1, mounted: 0, machinery: 0.1, naval: 0, armored: 0, aviation: 2, magical: 0.1 } // aviation
-  };
 
   const forces = getJoinedForces(b[side].regiments);
   const phase = b[side].phase!;
-  const adjuster = Math.max(populationRate / 10, 10); // population adjuster, by default 100
-  b[side].power = sum(options.military.map(u => (forces[u.name] || 0) * u.power * scheme[phase][u.type])) / adjuster;
+  b[side].power = calculateBattleStrength(forces, options.military, phase, populationRate);
   const uiValue = b[side].power ? Math.max(b[side].power | 0, 1) : 0;
   ensureEl(`battlePower_${side}`).innerHTML = String(uiValue);
 }
@@ -1111,41 +954,11 @@ function runBattle(): void {
   if (lastRecord?.phase === currentPhase) lastRecord.count += 1;
   else b.phasesRecord.push({ phase: currentPhase, count: 1 });
 
-  // calculate casualties
-  const attack = b.attackers.power * (b.attackers.die! / 10 + 0.4);
-  const defense = b.defenders.power * (b.defenders.die! / 10 + 0.4);
-
-  // casualties modifier for phase
-  const phaseCasualtyRate: Record<string, number> = {
-    skirmish: 0.1,
-    melee: 0.2,
-    pursue: 0.3,
-    retreat: 0.3,
-    boarding: 0.2,
-    shelling: 0.1,
-    chase: 0.03,
-    withdrawal: 0.03,
-    blockade: 0,
-    sheltering: 0,
-    sortie: 0.1,
-    bombardment: 0.05,
-    storming: 0.2,
-    defense: 0.2,
-    looting: 0.5,
-    surrendering: 0.5,
-    surprise: 0.3,
-    shock: 0.3,
-    landing: 0.3,
-    flee: 0,
-    waiting: 0,
-    maneuvering: 0.1,
-    dogfight: 0.2
-  };
-
-  const casualties =
-    Math.random() * Math.max(phaseCasualtyRate[b.attackers.phase!], phaseCasualtyRate[b.defenders.phase!]); // total casualties, ~10% per iteration
-  const casualtiesA = (casualties * defense) / (attack + defense); // attackers casualties, ~5% per iteration
-  const casualtiesD = (casualties * attack) / (attack + defense); // defenders casualties, ~5% per iteration
+  const { attackers: casualtiesA, defenders: casualtiesD } = calculateBattleCasualtyRates(
+    { power: b.attackers.power, die: b.attackers.die!, phase: b.attackers.phase! },
+    { power: b.defenders.power, die: b.defenders.die!, phase: b.defenders.phase! },
+    () => Math.random()
+  );
 
   calculateCasualties("attackers", casualtiesA);
   calculateCasualties("defenders", casualtiesD);
@@ -1153,8 +966,8 @@ function runBattle(): void {
   b.defenders.casualties += casualtiesD;
 
   // change morale
-  b.attackers.morale = Math.max(b.attackers.morale - casualtiesA * 100 - 1, 0);
-  b.defenders.morale = Math.max(b.defenders.morale - casualtiesD * 100 - 1, 0);
+  b.attackers.morale = calculateBattleMorale(b.attackers.morale, casualtiesA);
+  b.defenders.morale = calculateBattleMorale(b.defenders.morale, casualtiesD);
 
   // update table values
   updateTable("attackers");
@@ -1171,8 +984,7 @@ function calculateCasualties(side: Side, casualties: number): void {
   const b = battle!;
   for (const r of b[side].regiments) {
     for (const unit in r.u) {
-      const randomness = 0.8 + Math.random() * 0.4;
-      const died = Math.min(Pint(r.u[unit] * casualties * randomness), r.survivors![unit]);
+      const died = calculateUnitLosses(r.u[unit], r.survivors![unit], casualties, () => Math.random());
       r.casualties![unit] -= died;
       r.survivors![unit] -= died;
     }

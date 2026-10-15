@@ -771,3 +771,35 @@ Goals:
 For the concrete `src/` layout the code actually uses — and a guide to where each new
 file belongs — see [Project Structure](#project-structure) below. The transition is
 designed to coexist with legacy JavaScript.
+
+# Campaign preparation boundaries
+
+The following APIs are available before adding the campaign runtime:
+
+- `services/io/map-document.ts` captures a detached map document with full topology and explicit unit settings.
+  `legacy-map-save-source.ts` and `map-save-snapshot.ts` adapt it to the existing `.map` format. Browser capture stays
+  in `save.ts`; scenario compilation must not use DOM controls or the legacy file slots as its data model.
+- `generators/province-statistics.ts` derives province statistics and converts population using explicit settings.
+  Queries do not repair capitals or write cached entity fields; the province editor owns those legacy mutations.
+- `application/workspace-mode.ts` serializes mode requests, runs validation guards, then synchronous commit handlers,
+  then publishes the mode. Guards must not perform lifecycle mutations. `workspace-lifecycle.ts` owns the explicit
+  View/Edit transition mapping and map-load handling, with browser operations supplied by the runtime adapter.
+- `renderers/scene/political-render-source.ts` projects assignments, state/province metadata, labels, and optional
+  source-ID mappings into one render world. `createMapRenderWorld` accepts this input; the default is the editable map.
+  Fills, borders, halos, and picking read that same projected world. Campaign callers must supply labels and entities
+  using the projected IDs and invalidate affected layers after updating assignments. Geometry remains shared and
+  must be treated as read-only. The source map is not rewritten when projected ownership changes.
+- `generators/tax-calculation.ts` returns sales/poll revenue without changing treasury. The editor's `collectTaxes`
+  wrapper still replaces its frozen-cycle balance. `battle-calculation.ts` contains the existing phase strength,
+  casualty, morale, and unit-loss formulas; the battle controller owns validation, UI, and applying results.
+  Randomized formulas require an explicit random function. They are reusable calculations, not a campaign economy
+  or autonomous combat engine.
+- `generators/simulation-random.ts` provides independently owned, serializable `mulberry32-v1` streams. It never
+  overrides `Math.random`; callers persist the algorithm and integer state. The legacy battle editor supplies its
+  existing ambient random source through the formula parameter, preserving its draw order.
+
+Run `npm run test:headless` for the pure boundary tests. Its separate Node configuration has no browser setup stubs;
+it checks importability, document isolation, political projection consistency, and deterministic calculation
+continuation after serializing RNG state. Add future campaign tests to this configuration rather than relying on
+the legacy suite's fake `window` and `document`. Full campaign tick/command/save invariants remain part of campaign
+implementation. Neither suite automatically runs Playwright.

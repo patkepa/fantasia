@@ -6,6 +6,12 @@ import type { GoodsProductionSource } from "./layers/economic-ice-scene";
 import type { LabelRenderState } from "./layers/label-scene";
 import type { MarkerRenderState } from "./layers/point-symbol-scene";
 
+import {
+  getMapPoliticalSource,
+  type PoliticalRenderSource,
+  projectPoliticalRenderWorld
+} from "./political-render-source";
+
 export interface ClimateRenderGrid {
   cells: Grid["cells"];
   points: Grid["points"];
@@ -20,6 +26,7 @@ export interface MapRenderWorld extends PackedGraph {
   goodsProduction?: GoodsProductionSource;
   labelRenderState?: LabelRenderState;
   markerRenderState?: MarkerRenderState;
+  politicalSourceIds?: { states?: Readonly<Record<number, number>>; provinces?: Readonly<Record<number, number>> };
   seed?: string;
   urbanization?: number;
 }
@@ -32,22 +39,26 @@ export function createMapRenderWorld(
   urbanization?: number,
   labelRenderState?: LabelRenderState,
   coordinateRenderState?: CoordinateRenderState,
-  seed?: string
+  seed?: string,
+  politicalSource: PoliticalRenderSource = getMapPoliticalSource(packed, labelRenderState)
 ): MapRenderWorld {
-  return {
-    ...packed,
-    climate: {
-      cells: climate.grid.cells,
-      points: climate.grid.points,
-      requestedCells: climate.requestedCells,
-      temperatureScale: climate.temperatureScale,
-      vertices: climate.grid.vertices
+  return projectPoliticalRenderWorld(
+    {
+      ...packed,
+      climate: {
+        cells: climate.grid.cells,
+        points: climate.grid.points,
+        requestedCells: climate.requestedCells,
+        temperatureScale: climate.temperatureScale,
+        vertices: climate.grid.vertices
+      },
+      coordinateRenderState,
+      goodsProduction,
+      labelRenderState,
+      markerRenderState,
+      seed,
+      urbanization
     },
-    coordinateRenderState,
-    goodsProduction,
-    labelRenderState,
-    markerRenderState,
-    seed,
-    urbanization
-  };
+    politicalSource
+  );
 }

@@ -10,8 +10,10 @@ import { getUsedFonts } from "@/services/fonts";
 import { LocalMapStorage } from "@/services/io/local-map-storage";
 import { VERSION } from "@/services/versioning";
 import { ensureEl, getFileName, link, parseError } from "@/utils";
-import type { MapDataSection } from "./map-data-serializer";
+import { createLegacyMapSaveSource } from "./legacy-map-save-source";
 import { serializeMapSectionsInWorker } from "./map-data-serializer-client";
+import { captureMapDocument } from "./map-document";
+import { createMapSaveSections } from "./map-save-snapshot";
 import { createSerializedMapStyle } from "./serialized-map-style";
 
 type SaveMethod = "storage" | "machine" | "dropbox";
@@ -52,36 +54,6 @@ async function prepareMapData(): Promise<string> {
   const date = new Date();
   const dateString = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
   const license = "File can be loaded in patkepa.github.io/fantasia";
-  const params = [VERSION, license, dateString, seed, graphWidth, graphHeight, mapId].join("|");
-  const settings = [
-    distanceUnitInput.value,
-    distanceScale,
-    areaUnit.value,
-    heightUnit.value,
-    heightExponentInput.value,
-    temperatureScale.value,
-    "", // previously used for barSize.value
-    "", // previously used for barLabel.value
-    "", // previously used for barBackColor.value
-    "", // previously used for barBackColor.value
-    "", // previously used for barPosX.value
-    "", // previously used for barPosY.value
-    populationRate,
-    urbanization,
-    "", // previously used for mapSizeOutput.value, part of options now
-    "", // previously used for latitudeOutput.value, part of options now
-    "", // previously used for temperatureEquatorOutput.value
-    "", // previously used for tempNorthOutput.value
-    "", // previously used for precOutput.value, part of options now
-    JSON.stringify(options),
-    mapName.value,
-    "", // previously used for hideLabels
-    stylePreset.value,
-    "", // previously used for rescaleLabels
-    urbanDensity,
-    "", // previously used for longitudeOutput.value, part of options now
-    ensureEl<HTMLInputElement>("growthRate").value
-  ].join("|");
   const fonts = getUsedFonts(ensureEl("map") as Element as SVGSVGElement);
 
   // The SVG slot is retained temporarily for unmigrated overlay data. Pixi-owned layers are intentionally absent.
@@ -122,8 +94,6 @@ async function prepareMapData(): Promise<string> {
   cloneEl.querySelector("#defs-emblems")?.replaceChildren();
   const serializedSVG = new XMLSerializer().serializeToString(cloneEl);
 
-  const { spacing, cellsX, cellsY, boundary, points, features, cellsDesired } = grid;
-  const gridGeneral = { spacing, cellsX, cellsY, boundary, points, features, cellsDesired };
   const serializedStyle = createSerializedMapStyle(
     style,
     getDocumentLayerOrder(LayerControls.getLayerOrder()),
@@ -137,70 +107,46 @@ async function prepareMapData(): Promise<string> {
     .join("")
     .replace(/[\r\n]+/g, " "); // map data is split by CRLF on load
 
-  // store name array only if not the same as default
-  const defaultNameBases = Names.getNameBases();
-  const namesData = Names.nameBases
-    .map((b, i) => {
-      const names = defaultNameBases[i] && defaultNameBases[i].b === b.b ? "" : b.b;
-      return `${b.name}|${b.min}|${b.max}|${b.d}|${b.m}|${names}`;
-    })
-    .join("/");
-
-  const text = (value = ""): MapDataSection => ({ kind: "text", value });
-  const json = (value: unknown): MapDataSection => ({ kind: "json", value });
-  const csv = (value: ArrayLike<number>): MapDataSection => ({ kind: "csv", value });
-  return serializeMapSectionsInWorker([
-    text(params),
-    text(settings),
-    json(mapCoordinates),
-    json(pack.biomes),
-    json(notes),
-    text(serializedSVG),
-    json(gridGeneral),
-    csv(grid.cells.h),
-    csv(grid.cells.prec),
-    csv(grid.cells.f),
-    csv(grid.cells.t),
-    csv(grid.cells.temp),
-    json(pack.features),
-    json(pack.cultures),
-    json(pack.states),
-    json(pack.burgs),
-    csv(pack.cells.biome),
-    csv(pack.cells.burg),
-    csv(pack.cells.conf),
-    csv(pack.cells.culture),
-    csv(pack.cells.fl),
-    { kind: "rounded-csv", value: pack.cells.pop },
-    csv(pack.cells.r),
-    text(),
-    csv(pack.cells.s),
-    csv(pack.cells.state),
-    csv(pack.cells.religion),
-    csv(pack.cells.province),
-    text(),
-    json(pack.religions),
-    json(pack.provinces),
-    text(namesData),
-    json(pack.rivers),
-    text(),
-    json(fonts),
-    json(pack.markers),
-    json(pack.cells.routes),
-    json(pack.routes),
-    json(pack.zones),
-    json(pack.ice),
-    csv(pack.cells.good),
-    json(pack.goods),
-    json(pack.markets || []),
-    json(pack.deals || []),
-    csv(pack.cells.market),
-    text(customGoodIcons),
-    json(pack.measurers ?? []),
-    json(pack.addedLabels || []),
-    json(serializedStyle),
-    json(pack.relief || [])
-  ]);
+  const snapshot = captureMapDocument({
+    seed,
+    mapId,
+    graphWidth,
+    graphHeight,
+    grid,
+    pack,
+    mapCoordinates,
+    notes,
+    options,
+    style: serializedStyle,
+    nameBases: Names.nameBases,
+    settings: {
+      distanceUnit: distanceUnitInput.value,
+      distanceScale,
+      areaUnit: areaUnit.value,
+      heightUnit: heightUnit.value,
+      heightExponent: heightExponentInput.value,
+      temperatureScale: temperatureScale.value,
+      populationRate,
+      urbanization,
+      urbanDensity,
+      growthRate: ensureEl<HTMLInputElement>("growthRate").value,
+      mapName: mapName.value,
+      stylePreset: stylePreset.value
+    }
+  });
+  return serializeMapSectionsInWorker(
+    createMapSaveSections(
+      createLegacyMapSaveSource(snapshot, {
+        version: VERSION,
+        license,
+        date: dateString,
+        defaultNameBases: Names.getNameBases(),
+        serializedSVG,
+        customGoodIcons,
+        fonts
+      })
+    )
+  );
 }
 
 function waitForMainThreadIdle(): Promise<void> {

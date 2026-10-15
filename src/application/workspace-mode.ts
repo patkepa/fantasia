@@ -12,6 +12,7 @@ type WorkspaceModeTransitionHandler = (
   nextMode: WorkspaceMode,
   previousMode: WorkspaceMode
 ) => boolean | Promise<boolean>;
+type WorkspaceModeCommitHandler = (nextMode: WorkspaceMode, previousMode: WorkspaceMode) => void;
 
 const CAPABILITIES: Readonly<Record<WorkspaceMode, ReadonlySet<WorkspaceCapability>>> = {
   view: new Set(["map:inspect"]),
@@ -29,6 +30,8 @@ let root: HTMLElement | null = null;
 let onCapabilityDenied: (message: string) => void = () => undefined;
 const listeners = new Set<WorkspaceModeListener>();
 const transitionHandlers = new Set<WorkspaceModeTransitionHandler>();
+const commitHandlers = new Set<WorkspaceModeCommitHandler>();
+let transitionQueue: Promise<unknown> = Promise.resolve();
 
 export function initializeWorkspaceMode(options: WorkspaceModeOptions = {}): () => void {
   mode = getStoredWorkspaceMode() ?? mode;
@@ -47,13 +50,21 @@ export function getWorkspaceMode(): WorkspaceMode {
   return mode;
 }
 
-export async function setWorkspaceMode(nextMode: WorkspaceMode): Promise<boolean> {
+export function setWorkspaceMode(nextMode: WorkspaceMode): Promise<boolean> {
+  const transition = transitionQueue.then(() => transitionTo(nextMode));
+  // A failed transition must not prevent subsequent requests from being processed.
+  transitionQueue = transition.catch(() => undefined);
+  return transition;
+}
+
+async function transitionTo(nextMode: WorkspaceMode): Promise<boolean> {
   if (nextMode === mode) return true;
 
   for (const handler of transitionHandlers) {
     if (!(await handler(nextMode, mode))) return false;
   }
 
+  for (const handler of commitHandlers) handler(nextMode, mode);
   mode = nextMode;
   storeWorkspaceMode();
   applyModeAttribute();
@@ -77,9 +88,16 @@ export function subscribeToWorkspaceMode(listener: WorkspaceModeListener): () =>
   return () => listeners.delete(listener);
 }
 
+/** Validation only. Put lifecycle side effects in a commit handler. */
 export function registerWorkspaceModeTransitionHandler(handler: WorkspaceModeTransitionHandler): () => void {
   transitionHandlers.add(handler);
   return () => transitionHandlers.delete(handler);
+}
+
+/** Runs synchronously after all guards accept, before publishing the new mode. */
+export function registerWorkspaceModeCommitHandler(handler: WorkspaceModeCommitHandler): () => void {
+  commitHandlers.add(handler);
+  return () => commitHandlers.delete(handler);
 }
 
 function getDefaultRoot(): HTMLElement | null {
@@ -114,4 +132,6 @@ export function resetWorkspaceModeForTests(): void {
   onCapabilityDenied = () => undefined;
   listeners.clear();
   transitionHandlers.clear();
+  commitHandlers.clear();
+  transitionQueue = Promise.resolve();
 }

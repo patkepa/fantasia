@@ -59,12 +59,8 @@ import { initializeApplicationState } from "./application-state";
 import { GenerationRunGuard } from "./generation-run-guard";
 import { endViewSession, startViewSession } from "./view-session-state";
 import { getViewportSurface, initializeViewportSurface } from "./viewport-surface";
-import {
-  getWorkspaceMode,
-  initializeWorkspaceMode,
-  registerWorkspaceModeTransitionHandler,
-  requireWorkspaceCapability
-} from "./workspace-mode";
+import { bindWorkspaceLifecycle } from "./workspace-lifecycle";
+import { initializeWorkspaceMode, requireWorkspaceCapability } from "./workspace-mode";
 
 getUnitSettings();
 
@@ -167,12 +163,21 @@ const app = initializeApplicationState({
 });
 
 initializeWorkspaceMode({ onCapabilityDenied: message => tip(message, false, "error") });
-registerWorkspaceModeTransitionHandler(nextMode => {
-  if (nextMode === "view") {
-    if (app.customization) {
-      tip("Finish or cancel the active editing workflow before entering View mode", false, "error");
-      return false;
-    }
+function refreshWorkspaceView(): void {
+  startViewSession(
+    new Map(LayerControls.getSnapshot().layers.map(layer => [layer.id, layer.visible])),
+    LayerControls.getLayerOrder()
+  );
+}
+
+const workspaceLifecycle = bindWorkspaceLifecycle({
+  refreshView: refreshWorkspaceView,
+  canEnterView: () => {
+    if (!app.customization) return true;
+    tip("Finish or cancel the active editing workflow before entering View mode", false, "error");
+    return false;
+  },
+  enterView: () => {
     closeEditDialogs();
     clearMapInteractionOverlay();
     if (
@@ -180,27 +185,15 @@ registerWorkspaceModeTransitionHandler(nextMode => {
     ) {
       OptionsController.hide();
     }
-    startViewSession(
-      new Map(LayerControls.getSnapshot().layers.map(layer => [layer.id, layer.visible])),
-      LayerControls.getLayerOrder()
-    );
-    return true;
-  }
-
-  endViewSession(
-    (layerId, visible) => LayerControls.setLayerVisibility(layerId, visible),
-    order => LayerControls.setLayerOrder(order as Parameters<typeof LayerControls.setLayerOrder>[0])
-  );
-  return true;
+    refreshWorkspaceView();
+  },
+  leaveView: () =>
+    endViewSession(
+      (layerId, visible) => LayerControls.setLayerVisibility(layerId, visible),
+      order => LayerControls.setLayerOrder(order as Parameters<typeof LayerControls.setLayerOrder>[0])
+    )
 });
-window.addEventListener("map:loaded", () => {
-  if (getWorkspaceMode() === "view") {
-    startViewSession(
-      new Map(LayerControls.getSnapshot().layers.map(layer => [layer.id, layer.visible])),
-      LayerControls.getLayerOrder()
-    );
-  }
-});
+window.addEventListener("map:loaded", workspaceLifecycle.mapLoaded);
 
 OptionsController.applyStoredOptions();
 app.graphWidth = +mapWidthInput.value;
