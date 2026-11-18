@@ -79,6 +79,7 @@
 
 - `docs/domain/glossary.md`: Domain vocabulary definitions.
 - `docs/architecture/architecture.md`: The guiding blueprint for Fantasia 2.0.
+- `docs/architecture/app-shell-and-sessions.md`: Main menu, Editor/Showcase/Play sessions, map library, Play mode layering.
 
 # Code Style Rules
 

@@ -1,8 +1,7 @@
 import {
   getWorkspaceMode,
   registerWorkspaceModeCommitHandler,
-  registerWorkspaceModeTransitionHandler,
-  type WorkspaceMode
+  registerWorkspaceModeTransitionHandler
 } from "./workspace-mode";
 
 export interface WorkspaceLifecycle {
@@ -15,12 +14,14 @@ export interface WorkspaceLifecycle {
 /** Explicit mode transitions, separate from browser startup and validation. */
 export function bindWorkspaceLifecycle(lifecycle: WorkspaceLifecycle): { dispose: () => void; mapLoaded: () => void } {
   let active = true;
-  const validate = registerWorkspaceModeTransitionHandler(next => next !== "view" || lifecycle.canEnterView());
-  const transitions: Record<WorkspaceMode, Partial<Record<WorkspaceMode, () => void>>> = {
-    edit: { view: lifecycle.enterView },
-    view: { edit: lifecycle.leaveView }
-  };
-  const commit = registerWorkspaceModeCommitHandler((next, previous) => transitions[previous][next]?.());
+  // View and Play share one read-only view session; only crossing the Edit boundary starts or ends it.
+  const validate = registerWorkspaceModeTransitionHandler(
+    (next, previous) => previous !== "edit" || next === "edit" || lifecycle.canEnterView()
+  );
+  const commit = registerWorkspaceModeCommitHandler((next, previous) => {
+    if (previous === "edit") lifecycle.enterView();
+    else if (next === "edit") lifecycle.leaveView();
+  });
   return {
     dispose: () => {
       active = false;
@@ -28,7 +29,7 @@ export function bindWorkspaceLifecycle(lifecycle: WorkspaceLifecycle): { dispose
       commit();
     },
     mapLoaded: () => {
-      if (active && getWorkspaceMode() === "view") lifecycle.refreshView();
+      if (active && getWorkspaceMode() !== "edit") lifecycle.refreshView();
     }
   };
 }

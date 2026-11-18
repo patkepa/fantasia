@@ -1,5 +1,5 @@
 import { setViewSessionLayerVisibility } from "@/application/view-session-state";
-import { getWorkspaceMode, requireWorkspaceCapability } from "@/application/workspace-mode";
+import { getWorkspaceMode, isWorkspaceReadOnly, requireWorkspaceCapability } from "@/application/workspace-mode";
 import { tip } from "@/components/tooltips";
 import type { MapLayerId } from "@/renderers/core/layer-registry";
 import { MAP_LAYER_REGISTRY, normalizeMapLayerOrder, resolveMapLayerOrder } from "@/renderers/core/layer-registry";
@@ -314,7 +314,7 @@ export function isLayerOn(id: string): boolean {
 
 export function setLayerButtonVisibility(id: string, visible: boolean): void {
   ensureEl(id).classList.toggle("buttonoff", !visible);
-  if (getWorkspaceMode() === "view") setViewSessionLayerVisibility(id, visible);
+  if (isWorkspaceReadOnly()) setViewSessionLayerVisibility(id, visible);
   else persistLayerVisibility(id, visible);
   getCurrentPreset();
   ViewportLayers.invalidateAll();

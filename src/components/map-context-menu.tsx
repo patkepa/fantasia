@@ -1,7 +1,7 @@
 import { Icon } from "@patkepa/kantzen-ui/icons";
 import { Menu, MenuDivider, MenuItem, showContextMenu, type MenuItemProps } from "@patkepa/kantzen-ui/primitives";
 import { type ReactNode, useState } from "react";
-import { getWorkspaceMode } from "@/application/workspace-mode";
+import { isWorkspaceReadOnly } from "@/application/workspace-mode";
 import { tip } from "@/components/tooltips";
 import { Controllers } from "@/controllers";
 import type { MapContext, MapContextArea, MapContextEntity } from "./map-context";
@@ -30,7 +30,7 @@ export function MapContextMenu({ context }: { context: MapContext }): React.JSX.
   const [page, setPage] = useState<MenuPage>("main");
   const { cellId, entities, point } = context;
   const isLand = pack.cells.h[cellId] >= 20;
-  const isViewMode = getWorkspaceMode() === "view";
+  const isViewMode = isWorkspaceReadOnly();
   const burg = entities.find(entity => entity.kind === "burg");
   const canAddBurg = isLand && !pack.cells.burg[cellId];
   const canAddRiver = isLand && !pack.cells.b[cellId] && !pack.cells.r[cellId];

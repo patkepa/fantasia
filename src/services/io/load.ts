@@ -235,6 +235,7 @@ function showUploadMessage(type: string, mapData: string[] | null, mapVersion: s
     return;
   }
 
+  notifyLoadFailed(title);
   showLoadMessage({
     actions: [{ close: false, label: "Clear cache", onClick: cleanupData }, { label: "OK" }],
     id: "mapVersionWarningDialog",
@@ -534,7 +535,7 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
 
     {
       // add custom texture if any
-      const textureHref = select("#texture").attr("data-href");
+      const textureHref = document.getElementById("texture")?.getAttribute("data-href"); // Pixi-owned; may be absent
       if (textureHref) window.StyleEditor.updateTextureSelectValue(textureHref);
     }
 
@@ -797,6 +798,7 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
     ERROR && console.error(error);
     clearMainTip();
 
+    notifyLoadFailed(parseError(error as Error));
     const messageHtml = /* html */ `An error occurred while loading the map. Select a different file to load, <br>generate a new random map or cancel the loading.<br>Map version: ${mapVersion}. Generator version: ${VERSION}.
       <p id="errorBox">${parseError(error as Error)}</p>`;
 
@@ -836,6 +838,11 @@ function migrateLegacyCustomEmblemData(): void {
       if (source) entity.coa.customData = source;
     }
   }
+}
+
+/** Lets awaiting callers (e.g. the main menu) settle when a load ends in an error dialog instead of `map:loaded`. */
+function notifyLoadFailed(reason: string): void {
+  window.dispatchEvent(new CustomEvent("map:load-failed", { detail: { reason } }));
 }
 
 type LoadMessageOptions = import("@/components/ui/message-dialog").MessageDialogOptions;

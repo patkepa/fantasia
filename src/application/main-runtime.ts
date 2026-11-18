@@ -54,6 +54,7 @@ import {
   TYPED_ARRAY_MAX
 } from "@/utils";
 import { stored } from "@/utils/preferences";
+import { enterDeepLinkedEditor } from "./app-session";
 import { bindApplicationController } from "./application-controller";
 import { initializeApplicationState } from "./application-state";
 import { GenerationRunGuard } from "./generation-run-guard";
@@ -216,13 +217,65 @@ async function startApplication(): Promise<void> {
       title: "Loading error",
       width: "28em"
     });
-  } else {
+  } else if (hasDeepLink()) {
+    // Deep links (shared map URLs, MFCG seeds) skip the main menu and open straight in the Editor.
     const rendererReady = waitForRendererCommit();
     await checkLoadParameters();
     await rendererReady;
+    documentStarted = true;
     hideLoading();
+    enterDeepLinkedEditor();
+  } else {
+    hideLoading(300); // the main menu replaces the boot screen
   }
   initiateAutosave();
+}
+
+const hasDeepLink = (): boolean => ["maplink", "seed"].some(key => new URL(window.location.href).searchParams.has(key));
+
+/** True once any map has been generated or loaded; the first world also initializes style presets. */
+let documentStarted = false;
+
+async function openGeneratedMap(seed?: string): Promise<void> {
+  const rendererReady = waitForRendererCommit();
+  showLoading();
+  try {
+    if (documentStarted) {
+      closeDialogs();
+      app.customization = 0;
+      resetZoom(0);
+      undraw();
+    } else {
+      await initializeStylePresetsRuntime();
+      await StylePresets.applyOnLoad();
+    }
+    await generate(seed ? { seed } : undefined, false);
+    if (!documentStarted) LayerControls.restoreSavedPreset();
+    LayerControls.drawActiveLayers();
+    OptionsController.fitMapToScreen();
+    documentStarted = true;
+    await rendererReady;
+  } finally {
+    hideLoading();
+  }
+}
+
+function openMapFile(file: Blob): Promise<void> {
+  const rendererReady = waitForRendererCommit();
+  showLoading();
+  return new Promise<void>((resolve, reject) => {
+    const settle = (event: Event): void => {
+      window.removeEventListener("map:loaded", settle);
+      window.removeEventListener("map:load-failed", settle);
+      if (event.type === "map:loaded") {
+        documentStarted = true;
+        void rendererReady.then(() => resolve());
+      } else reject(new Error((event as CustomEvent<{ reason?: string }>).detail?.reason || "Map failed to load"));
+    };
+    window.addEventListener("map:loaded", settle);
+    window.addEventListener("map:load-failed", settle);
+    void window.Services.Load.uploadMap(file);
+  }).finally(hideLoading);
 }
 
 if (document.readyState === "loading")
@@ -255,8 +308,8 @@ function waitForRendererCommit(): Promise<void> {
   });
 }
 
-function hideLoading() {
-  select("#loading").transition().duration(3000).style("opacity", 0);
+function hideLoading(duration = 3000) {
+  select("#loading").transition().duration(duration).style("opacity", 0);
   select("#optionsContainer").transition().duration(2000).style("opacity", 1);
   select("#tooltip").transition().duration(3000).style("opacity", 1);
 }
@@ -1060,6 +1113,8 @@ function undraw() {
 bindApplicationController({
   focusOn,
   generateMapOnLoad,
+  openGeneratedMap,
+  openMapFile,
   regenerateMap,
   undraw
 });

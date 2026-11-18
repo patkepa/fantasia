@@ -3,7 +3,7 @@
 import { hsl } from "d3";
 import { ApplicationController } from "@/application/application-controller";
 import { getViewportSurface } from "@/application/viewport-surface";
-import { getWorkspaceMode, requireWorkspaceCapability } from "@/application/workspace-mode";
+import { isWorkspaceReadOnly, requireWorkspaceCapability } from "@/application/workspace-mode";
 import { mountAboutPanel } from "@/components/app-info/about-panel";
 import { closeDialogs, confirmationDialog } from "@/components/dialog/dialog-helpers";
 import { enableElementDragging } from "@/components/element-dragging";
@@ -102,7 +102,7 @@ if (stored("disable_click_arrow_tooltip")) {
 
 // Show options pane on trigger click
 function showOptions(event?: Event): void {
-  if (getWorkspaceMode() === "view") {
+  if (isWorkspaceReadOnly()) {
     tip("Switch to Edit mode to change map options", false, "error");
     return;
   }

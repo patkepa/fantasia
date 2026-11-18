@@ -43,7 +43,14 @@
   position: relative;
 }
 
-.fantasia-workspace-toolbar__identity:has(.fantasia-country-selection) .fantasia-brand {
+.fantasia-workspace-toolbar__identity:has(.fantasia-country-selection) .fantasia-workspace-toolbar__home.fantasia-floating-menu__trigger {
+  min-width: 40px;
+  grid-template-columns: 24px;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.fantasia-brand {
   display: none;
 }
 

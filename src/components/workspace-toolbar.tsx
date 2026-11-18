@@ -1,6 +1,7 @@
 import { Icon, type IconName, IconSize, Icons } from "@patkepa/kantzen-ui/icons";
 import { Menu, MenuDivider, MenuItem } from "@patkepa/kantzen-ui/primitives";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { getAppShell, returnToMenu, subscribeToAppShell } from "@/application/app-session";
 import {
   getWorkspaceMode,
   setWorkspaceMode,
@@ -115,7 +116,7 @@ const MAP_LAYER_MENU_GROUPS: readonly MapLayerMenuGroup[] = [
 const MAP_LAYER_GROUP_INDEX = new Map(
   MAP_LAYER_MENU_GROUPS.flatMap((group, index) => group.ids.map(id => [id, index] as const))
 );
-const TOOLBAR_ICONS: IconName[] = ["folder-open", "refresh", "plus", "edit", "eye-open", "chevron-down"];
+const TOOLBAR_ICONS: IconName[] = ["home", "folder-open", "refresh", "plus", "edit", "eye-open", "chevron-down"];
 
 const PROJECT_ACTIONS = [
   { label: "New Map", icon: "document", targetId: "newMapButton", shortcut: "F2" },
@@ -513,7 +514,7 @@ function WorkspaceModeSwitch({ mode }: { mode: WorkspaceMode }): React.JSX.Eleme
   return (
     <div aria-label="Workspace mode" className="fantasia-workspace-mode" role="group">
       <span aria-live="polite" className="fantasia-workspace-mode__status" role="status">
-        Workspace is in {mode === "view" ? "View" : "Edit"} mode
+        Workspace is in {mode === "edit" ? "Edit" : "View"} mode
       </span>
       <button
         aria-pressed={mode === "view"}
@@ -535,7 +536,7 @@ function WorkspaceModeSwitch({ mode }: { mode: WorkspaceMode }): React.JSX.Eleme
   );
 }
 
-export function WorkspaceToolbar(props: WorkspaceToolbarProps): React.JSX.Element {
+export function WorkspaceToolbar(props: WorkspaceToolbarProps): React.JSX.Element | null {
   const [, setIconsLoaded] = useState(false);
   const [mode, setMode] = useState(getWorkspaceMode);
   const layerMenu = useLayerMenu(props);
@@ -551,10 +552,24 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps): React.JSX.Elemen
   }, []);
 
   useEffect(() => subscribeToWorkspaceMode(setMode), []);
+  // Only Editor sessions may switch between View and Edit; Play has its own HUD instead of this toolbar.
+  const isEditorSession = useSyncExternalStore(subscribeToAppShell, () => getAppShell().session?.kind === "editor");
 
+  if (mode === "play") return null;
   return (
     <nav aria-label="Map workspace" className="fantasia-workspace-toolbar">
       <div className="fantasia-workspace-toolbar__group">
+        <button
+          aria-label="Main menu"
+          className="fantasia-floating-menu__trigger fantasia-workspace-toolbar__home"
+          data-tip="Return to the main menu"
+          onClick={() => void returnToMenu()}
+          type="button"
+        >
+          <span className="fantasia-workspace-toolbar__icon" aria-hidden="true">
+            <Icon icon="home" size={17} />
+          </span>
+        </button>
         <div className="fantasia-workspace-toolbar__identity">
           <MapIdentity initialMapName={props.initialMapName} />
           <CountrySelection />
@@ -573,7 +588,7 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps): React.JSX.Elemen
         ) : null}
       </div>
       <div className="fantasia-workspace-toolbar__group fantasia-workspace-toolbar__group--right">
-        <WorkspaceModeSwitch mode={mode} />
+        {isEditorSession ? <WorkspaceModeSwitch mode={mode} /> : null}
         {mode === "edit" ? <EditMenu /> : null}
         <ViewsMenu {...layerMenu} mode={mode} onOpenSection={props.onOpenSection} />
       </div>

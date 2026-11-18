@@ -49,3 +49,5 @@ const scheduleEditorRuntimes = () => void import("./style/style-editor-loader");
 const requestIdle = (window as Partial<Window>).requestIdleCallback;
 if (requestIdle) requestIdle.call(window, scheduleEditorRuntimes, { timeout: 1_500 });
 else window.setTimeout(scheduleEditorRuntimes, 250);
+// Mounted last: the app shell pulls in services and session modules that expect the elements above to be registered.
+import "./app-shell/app-shell";

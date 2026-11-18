@@ -1,6 +1,7 @@
-export type WorkspaceMode = "view" | "edit";
+/** `play` inspects the map like `view`, but may also issue game-simulation commands. */
+export type WorkspaceMode = "view" | "edit" | "play";
 
-export type WorkspaceCapability = "map:inspect" | "map:edit" | "map:generate";
+export type WorkspaceCapability = "map:inspect" | "map:edit" | "map:generate" | "simulation:command";
 
 export interface WorkspaceModeOptions {
   onCapabilityDenied?: (message: string) => void;
@@ -16,12 +17,14 @@ type WorkspaceModeCommitHandler = (nextMode: WorkspaceMode, previousMode: Worksp
 
 const CAPABILITIES: Readonly<Record<WorkspaceMode, ReadonlySet<WorkspaceCapability>>> = {
   view: new Set(["map:inspect"]),
-  edit: new Set(["map:inspect", "map:edit", "map:generate"])
+  edit: new Set(["map:inspect", "map:edit", "map:generate"]),
+  play: new Set(["map:inspect", "simulation:command"])
 };
 
 const CAPABILITY_MESSAGES: Readonly<Record<Exclude<WorkspaceCapability, "map:inspect">, string>> = {
   "map:edit": "Switch to Edit mode to change this map",
-  "map:generate": "Switch to Edit mode to generate or regenerate map content"
+  "map:generate": "Switch to Edit mode to generate or regenerate map content",
+  "simulation:command": "Start a Play session to issue game orders"
 };
 const WORKSPACE_MODE_STORAGE_KEY = "workspace-mode";
 
@@ -74,6 +77,11 @@ async function transitionTo(nextMode: WorkspaceMode): Promise<boolean> {
 
 export function hasWorkspaceCapability(capability: WorkspaceCapability): boolean {
   return CAPABILITIES[mode].has(capability);
+}
+
+/** True when the serialized map document must not change (View and Play). */
+export function isWorkspaceReadOnly(): boolean {
+  return !hasWorkspaceCapability("map:edit");
 }
 
 export function requireWorkspaceCapability(capability: WorkspaceCapability): boolean {

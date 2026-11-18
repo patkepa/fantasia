@@ -8,6 +8,7 @@ import { Services } from "@/services";
 import { documentDirtyState } from "@/services/document-dirty-state";
 import { getUsedFonts } from "@/services/fonts";
 import { LocalMapStorage } from "@/services/io/local-map-storage";
+import { MapLibrary } from "@/services/io/map-library";
 import { VERSION } from "@/services/versioning";
 import { ensureEl, getFileName, link, parseError } from "@/utils";
 import { createLegacyMapSaveSource } from "./legacy-map-save-source";
@@ -158,6 +159,7 @@ function waitForMainThreadIdle(): Promise<void> {
 async function saveToStorage(mapData: string, showTip = false): Promise<void> {
   const blob = new Blob([mapData], { type: "text/plain" });
   await LocalMapStorage.set("lastMap", blob);
+  await MapLibrary.saveActiveDocument(blob, ensureEl<HTMLInputElement>("mapName").value, seed);
   showTip && tip("Map is saved to the browser storage", false, "success");
 }
 

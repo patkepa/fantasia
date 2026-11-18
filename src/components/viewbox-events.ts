@@ -1,7 +1,7 @@
 // Default interaction on the map canvas: pan/zoom, click-to-edit and hover tooltips
 import { drag, select } from "d3";
 import { setViewSessionSelection } from "@/application/view-session-state";
-import { getWorkspaceMode } from "@/application/workspace-mode";
+import { isWorkspaceReadOnly } from "@/application/workspace-mode";
 import { Controllers } from "@/controllers";
 import type { LabelType } from "@/generators/labels-generator";
 import type { MapHit } from "@/renderers/core/map-renderer";
@@ -68,7 +68,7 @@ const GREAT_EDITORS: Record<string, Opener> = {
 /** Handle a click on the map: open the editor for the clicked element */
 function onClick(event: MouseEvent): void {
   const hit = pickPixiRenderer(event.clientX, event.clientY);
-  if (getWorkspaceMode() === "view") {
+  if (isWorkspaceReadOnly()) {
     inspectMapPoint(event, hit);
     return;
   }
@@ -126,12 +126,7 @@ function inspectMapPoint(event: MouseEvent, hit: MapHit | null): void {
   if (cellId === undefined) return;
   if (pack.cells.h[cellId] < 20) clearSelectedCountry();
   const countryId = pack.cells.state[cellId];
-  if (
-    !event.shiftKey &&
-    getWorkspaceMode() === "view" &&
-    countryId &&
-    selectCountry(countryId, pack.cells.province[cellId])
-  ) {
+  if (!event.shiftKey && isWorkspaceReadOnly() && countryId && selectCountry(countryId, pack.cells.province[cellId])) {
     setViewSessionSelection({ cellId, domainId: String(countryId), domainKind: "state" });
     return;
   }
