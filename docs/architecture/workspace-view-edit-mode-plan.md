@@ -540,7 +540,7 @@ would otherwise produce false differences.
 - `npm run lint`
 - `npm run build`
 - `npm run test -- --run`
-- Update targeted Playwright coverage, but only run the full E2E suite when explicitly requested.
+- Verify the affected workspace interactions in the browser.
 
 ## Risks and mitigations
 

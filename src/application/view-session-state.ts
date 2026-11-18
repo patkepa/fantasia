@@ -70,10 +70,3 @@ export function endViewSession(
   layerOrder = null;
   selection = null;
 }
-
-export function resetViewSessionForTests(): void {
-  layerOverrides.clear();
-  layerVisibility = null;
-  layerOrder = null;
-  selection = null;
-}

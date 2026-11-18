@@ -319,10 +319,8 @@ core, but a real application also needs code that is none of those: persistence,
 app-shell lifecycle, static content, and shared helpers.
 
 At the repository root, keep only conventional entry points: package metadata, licensing and
-contribution documents, the primary Vite/Vitest/Playwright/TypeScript configuration, and the
-container definition. Put assets used only by documentation in `docs/assets/`; put an explicit
-test or benchmark configuration next to its suite under `tests/`; and put an explicit
-non-default build configuration under `config/`.
+contribution documents, the primary Vite and TypeScript configuration, and the container definition.
+Put assets used only by documentation in `docs/assets/` and non-default build configuration under `config/`.
 
 | Folder             | Layer       | Holds                                                |
 | ------------------ | ----------- | ---------------------------------------------------- |
@@ -462,8 +460,7 @@ A generator turns inputs into world data.
 
 - **Explicit in, explicit out.** Take the state to read plus a seed/options; produce the
   data to write. The fewer hidden inputs (ambient globals) it reads, the easier it is to
-  reason about and to test. New generators ship with unit tests (`*-generator.test.ts`) —
-  design for that from line one.
+  reason about and verify.
 - **Deterministic.** The same seed reproduces the same world. Seed the RNG once, up front;
   never depend on wall-clock time or unspecified iteration order.
 - **No view, no UI.** A generator never reads the DOM, builds SVG, or opens a dialog. If it
@@ -797,9 +794,3 @@ The following APIs are available before adding the campaign runtime:
 - `generators/simulation-random.ts` provides independently owned, serializable `mulberry32-v1` streams. It never
   overrides `Math.random`; callers persist the algorithm and integer state. The legacy battle editor supplies its
   existing ambient random source through the formula parameter, preserving its draw order.
-
-Run `npm run test:headless` for the pure boundary tests. Its separate Node configuration has no browser setup stubs;
-it checks importability, document isolation, political projection consistency, and deterministic calculation
-continuation after serializing RNG state. Add future campaign tests to this configuration rather than relying on
-the legacy suite's fake `window` and `document`. Full campaign tick/command/save invariants remain part of campaign
-implementation. Neither suite automatically runs Playwright.

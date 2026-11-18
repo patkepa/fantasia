@@ -1,8 +1,7 @@
 # Pixi renderer reference profiles
 
-Renderer benchmark reports use a fixed 1280×720 CSS-pixel viewport and the deterministic fixtures declared in
-`tests/benchmarks/fixtures.ts`. Each generated fixture fixes the seed and requested cell count. The legacy fixture is
-the checked-in `tests/fixtures/1.139.4.map` compatibility map.
+The historical renderer benchmark used a fixed 1280×720 CSS-pixel viewport. Each generated fixture fixed the
+seed and requested cell count. The legacy fixture was a map saved in version 1.139.4.
 
 ## Reference desktop
 
@@ -24,17 +23,9 @@ Record the exact browser version, user agent, logical CPU count, reported device
 canvas dimensions, and renderer resolution in every report. Reference results are only comparable when fixture,
 viewport, browser major version, and profile match.
 
-## Command and report
+## Historical report
 
-Run the full reference matrix with:
-
-```sh
-npm run benchmark:renderer
-```
-
-The command runs every fixture against the production Pixi renderer twice, serially, and writes
-`artifacts/renderer-benchmark-report.json`. The report records the active layer set, browser, Pixi version, selected
-GPU backend, fixture, canvas resolution, and resource accounting. Set `RENDERER_BENCHMARK_RUNS` to request more
-repetitions or `RENDERER_BENCHMARK_OUTPUT` to choose another report path. The GPU phase measures CPU submission of
-pending Pixi resource uploads; it does not claim hardware-completion time where the browser exposes no portable GPU
-timer. Historical SVG results remain comparison artifacts; the removed renderer is not reconstructed for new runs.
+The [renderer benchmark report](../../artifacts/renderer-benchmark-report.json) records the active layer set,
+browser, Pixi version, selected GPU backend, fixture, canvas resolution, and resource accounting. Each fixture
+ran against the production Pixi renderer twice, serially. The GPU phase measured CPU submission of pending
+Pixi resource uploads.

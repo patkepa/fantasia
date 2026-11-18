@@ -199,9 +199,7 @@ The third coord on `points: [x, y, cellId][]` stays a real cell id everywhere. N
 
 ## Testing Decisions
 
-Tests follow the existing Vitest pattern in `src/generators/*.test.ts` and `src/utils/*.test.ts`. `addMeandering` becoming pure makes its tests trivial — no `pack` fabrication needed.
-
-**`pathUtils.addMeandering`** (new file `src/utils/pathUtils.test.ts` additions):
+**`pathUtils.addMeandering`**
 
 - Returns one entry in `anchorIndices` per input cell, with `anchorIndices[0] === 0`.
 - Anchor positions in the output equal the input anchor positions (interpolation does not move anchors).

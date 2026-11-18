@@ -26,7 +26,6 @@
 - `docs/`: Domain and architectural documentation. See `docs/architecture/architecture.md` "Project Structure" for the full layout and a "where does my file go?" guide.
 - `src/index.html`: **CAUTION**: Still a roughly 3K-line monolith containing page shell markup, SVG `<defs>`, and CSS
   filters. Keep structural changes focused and incremental.
-- `tests/e2e/`: Playwright end-to-end tests. Never automatically run Playwright tests when developing.
 
 # Fantasia 2.0 Architecture Rules
 
@@ -49,9 +48,7 @@
 - **Run Locally**: `npm run dev`
 - **Build**: `npm run build`
 - **Lint**: `npm run lint`
-- **Unit Tests**: `npm run test` (Vitest)
-- **E2E Tests**: `npm run test:e2e` (Playwright)
-- **CI/CD**: GitHub Actions enforce linting, building, and playwright tests on PRs.
+- **CI/CD**: GitHub Actions runs lint and build checks on PRs targeting `master`.
 
 # AI Agent Instructions
 

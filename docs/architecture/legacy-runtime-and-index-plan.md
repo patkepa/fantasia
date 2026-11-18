@@ -61,21 +61,12 @@ build-pipeline change and generated-asset verification.
 
 ## Migration-friendly verification
 
-Test observable behavior and architectural boundaries rather than exact source strings,
-import spellings, or historical SVG output. The obsolete SVG layer snapshots and one-off
-cutover source checks have been retired. Current coverage includes:
+Verify observable behavior and architectural boundaries. In the browser, check the affected renderer behavior,
+seeded world reproducibility, or current and historical map loading.
 
-- renderer ownership, scene generation, visibility, ordering, and lifecycle unit tests;
-- Pixi hit routing for repeated burg-label clicks;
-- generated-frame health and layer toggling in `tests/e2e/layers.spec.ts`;
-- seeded world reproducibility and route naming in `tests/e2e/generation-regression.spec.ts`;
-- current and historical map loading in `tests/e2e/load-map.spec.ts`.
-
-Saved-map migrations and old-map fixtures remain required while their versions are supported.
+Keep saved-map migrations while their versions are supported.
 Do not remove positional serialization placeholders or change minimum supported versions as
 incidental cleanup. Preserve upstream attribution.
 
-For each change, run the narrowest relevant unit tests, type checking, lint for files in its
-configured scope, and a build when dependencies or assets change. Do not automatically run
-Playwright; report browser scenarios that remain unverified. For changes to save/load, also
-verify current and historical round trips when browser verification is authorized.
+Use type checking, lint for files in its configured scope, and a build when dependencies or assets change.
+For changes to save/load, also verify current and historical round trips when browser verification is authorized.

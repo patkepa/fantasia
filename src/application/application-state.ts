@@ -176,7 +176,3 @@ function installLegacyStateAccessors(state: ApplicationState, target: Record<str
     });
   }
 }
-
-export function resetApplicationStateForTests(): void {
-  applicationState = null;
-}

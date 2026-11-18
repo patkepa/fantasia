@@ -192,7 +192,7 @@ No new module files. All additions are methods on existing modules.
 
 ## Testing Decisions
 
-Tests follow the existing pattern in `src/generators/*.test.ts` (Vitest, fabricate a minimal `pack` shape, assert behaviour through the module's public surface). Good tests verify external behaviour — does the cost evaluator reject the cross-watershed hop, does the resolver return the closed-lake id — not internal map structure.
+Verify behavior through the module's public surface using a minimal `pack`. Check that the cost evaluator rejects the cross-watershed hop and the resolver returns the closed-lake ID.
 
 **`RiverModule.resolveDrainFeature`**
 
@@ -229,8 +229,6 @@ Tests follow the existing pattern in `src/generators/*.test.ts` (Vitest, fabrica
 - A lake-shore burg with `burg.port = openLakeFeatureId` whose outlet chain terminates in a closed downstream lake gets its port updated to that closed lake's feature id.
 - A lake-shore burg on a closed lake (no `feature.outlet`) keeps its original `burg.port` unchanged.
 - A lake-shore burg on a lake whose outlet exits the map keeps its original `burg.port` unchanged.
-
-Prior art for the test style: `src/generators/states-generator.test.ts`, `src/renderers/trade-animation.test.ts`.
 
 ## Out of Scope
 

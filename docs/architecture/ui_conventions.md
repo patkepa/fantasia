@@ -102,7 +102,7 @@ This document defines the UI rules for the incremental Kantzen migration. It sup
 For each migrated workflow:
 
 - Add unit coverage for state adapters and reusable UI contracts.
-- Update targeted Playwright selectors and expectations without automatically running the full E2E suite.
+- Verify the affected interactions in the browser.
 - Run `npm run lint`, `npm run build`, and `npm run test -- --run`.
 - Perform rendered desktop and mobile checks through the in-app Browser when its backend is available.
 - Confirm that opening and closing the workflow repeatedly does not duplicate listeners or retain stale state.

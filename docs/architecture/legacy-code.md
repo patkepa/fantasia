@@ -129,8 +129,6 @@ Compatibility lives in several places:
 - `src/services/io/map-migrations.ts` enforces the migration order.
 - `src/services/io/load.ts` reads both current and historical fields.
 - `src/services/io/save.ts` preserves the positional serialization contract.
-- `tests/e2e/load-map.spec.ts` verifies representative migrations such as legacy rulers,
-  added labels, label settings, lake shorelines, and relief icons.
 
 Do not remove old migration branches while their input versions remain accepted. Valid ways
 to retire them are:
@@ -187,13 +185,12 @@ TypeScript migration does not make old-map conversion code obsolete.
 
 For a legacy-runtime or bridge removal:
 
-1. Search all classic, inline, bundled, test, and documented callers.
+1. Search all classic, inline, bundled, and documented callers.
 2. Run `npx tsc --noEmit`.
 3. Run `npm run lint`.
 4. Run `npm run build`.
-5. Run focused unit tests and the relevant Playwright scenario.
-6. Load a current map and representative old fixtures.
-7. Confirm generation remains deterministic where the migrated code uses seeded randomness.
+5. Load current and representative historical maps. Check legacy rulers, added labels, label settings, lake shorelines, and relief icons where relevant.
+6. Confirm generation remains deterministic where the migrated code uses seeded randomness.
 
 For a saved-map compatibility change, also verify save/load round trips and require an explicit
 decision about the minimum supported version. Never infer authorization to break old maps from

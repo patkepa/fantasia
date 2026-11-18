@@ -221,7 +221,6 @@ Before changing a global, add or update an inventory row with one of these class
 | Supported external API | documented `window.*` integration surface | Treat as public; version or deprecate before removal. |
 | Temporary compatibility bridge | `window.Controllers`, state accessors, an old renderer helper | Give it an owner, callers, removal condition, and focused test. |
 | Inappropriate bundled coupling | migrated TypeScript calling an imported module through `window`, or reading bare ambient `pack` | Replace with a legal typed import, injected dependency, selector, or controller API. |
-| Test-only shim | globals created solely by Vitest setup | Keep out of production counts; improve the test environment when it masks browser behavior. |
 
 `runtime-compatibility-inventory.md` is the source of truth for bridge classes, owners, and removal conditions. It
 must not become a list of every legitimate DOM call.
@@ -481,9 +480,7 @@ documented bridge at that layer boundary. Do not replace every `window` platform
 | Browser integration | narrow and wide workspace layout, keyboard-only interaction, map gesture preservation, command/inspector flow, large-map responsiveness |
 | Serialization | current and representative legacy `.map` load/save round trips, save/export purity, persisted style/layer state where changed |
 
-Run `npm run lint`, `npm run build`, and `npm run test -- --run` for every phase. Add targeted Playwright coverage as a
-change is made; run the full end-to-end suite only when explicitly requested. Establish a clean unit-test baseline
-before using the test suite as a migration gate.
+Run `npm run lint` and `npm run build` for every phase. Verify the affected browser scenarios.
 
 ## Metrics and milestones
 

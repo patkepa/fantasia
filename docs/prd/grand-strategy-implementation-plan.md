@@ -398,8 +398,7 @@ Shared memory, WASM, and multiple simulation workers are later profiling-driven 
 6. **Explicit browser acceptance:** full campaign smoke flow, accessibility, resize, context recovery, and profiling.
 
 Run the narrowest affected unit/scenario tests per change, plus relevant lint/type/build checks. Introduce headless
-simulation benchmarks that can run without a browser. The existing `benchmark:renderer` command uses Playwright;
-execute it and browser E2E suites only through explicitly authorized runs, consistent with repository instructions.
+simulation benchmarks that can run without a browser.
 
 Every milestone is done only when its acceptance gate, save compatibility, AI obligations, and performance evidence
 are satisfied. New long-run state needs a serialization test in the same change that introduces it.

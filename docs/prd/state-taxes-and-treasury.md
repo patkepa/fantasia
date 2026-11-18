@@ -185,7 +185,7 @@ This rebalances pre-existing saves to the new model; users keep their world but 
 
 ### Tests
 
-- `src/generators/markets-generator.test.ts` — global trade tax affects landed cost; deal records `tax`.
+- Verify that global trade tax affects landed cost and the deal records `tax`.
 - New test for `States.collectTaxes()` — single state, mixed local/global deals, poll tax credit.
 
 ## Acceptance criteria

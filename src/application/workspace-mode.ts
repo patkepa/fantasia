@@ -125,13 +125,3 @@ function storeWorkspaceMode(): void {
 function applyModeAttribute(): void {
   root?.setAttribute("data-workspace-mode", mode);
 }
-
-export function resetWorkspaceModeForTests(): void {
-  mode = "view";
-  root = null;
-  onCapabilityDenied = () => undefined;
-  listeners.clear();
-  transitionHandlers.clear();
-  commitHandlers.clear();
-  transitionQueue = Promise.resolve();
-}

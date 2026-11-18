@@ -71,7 +71,7 @@ and cloning the compatibility overlay would produce an incomplete map.
 
 ## Diagnostics and benchmarks
 
-`npm run benchmark:renderer` records the fixed fixture, active layer set, browser and user agent, Pixi version, GPU
+The historical renderer benchmark report records the fixed fixture, active layer set, browser and user agent, Pixi version, GPU
 backend, viewport/canvas resolution, scene-build and GPU-submit timings, camera/layer timings, long tasks, DOM size,
 heap where available, and renderer resource counts/bytes. See
 [`../performance/pixi-reference-profiles.md`](../performance/pixi-reference-profiles.md) for the controlled profiles.

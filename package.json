@@ -16,11 +16,7 @@
     "dev": "vite",
     "build": "tsc && vite build && node scripts/check-bundle-size.mts",
     "build:viewer": "tsc && vite build --config config/vite.viewer.config.ts",
-    "benchmark:renderer": "playwright test --config=tests/benchmarks/playwright.config.ts",
     "preview": "vite preview",
-    "test": "vitest",
-    "test:headless": "vitest run --config config/vitest.headless.config.ts",
-    "test:e2e": "playwright test",
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "prepare": "simple-git-hooks"
@@ -30,7 +26,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
-    "@playwright/test": "^1.57.0",
     "@types/d3": "^7.4.3",
     "@types/delaunator": "^5.0.3",
     "@types/lineclip": "^2.0.0",
@@ -40,11 +35,9 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.1",
     "oxc-transform-react": "^0.145.0",
-    "playwright": "^1.57.0",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^5.9.3",
-    "vite": "^8.0.16",
-    "vitest": "^4.0.18"
+    "vite": "^8.0.16"
   },
   "dependencies": {
     "@patkepa/kantzen-ui": "^0.1.0",

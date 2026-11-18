@@ -62,7 +62,7 @@ Every milestone must meet these checks before it is marked complete:
 - [ ] Existing keyboard shortcuts continue to work or are deliberately replaced and documented.
 - [ ] Relevant unit tests are added or updated.
 - [ ] `npm run lint`, `npm run build`, and `npm run test -- --run` pass.
-- [ ] Targeted Playwright coverage is updated, but the full E2E suite is only run when explicitly requested.
+- [ ] Affected interactions are verified in the browser.
 - [ ] Legacy code made unreachable by the milestone is removed in the same change or recorded for Milestone 10.
 
 ## Milestones
