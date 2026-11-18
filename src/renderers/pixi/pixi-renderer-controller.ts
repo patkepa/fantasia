@@ -242,6 +242,12 @@ const getRendererScreenPoint = (clientX: number, clientY: number): ScreenPoint |
   return clientToViewport({ x: clientX, y: clientY }, surface.getBoundingClientRect());
 };
 
+export function hasRenderableWorld(): boolean {
+  // Generation creates cell geometry before assigning states and provinces.
+  const cells = window.pack?.cells;
+  return Boolean(cells?.i?.length && cells.state && cells.province && window.grid?.cells);
+}
+
 const getWorld = () => {
   lastWorld = createMapRenderWorld(
     pack,
@@ -290,7 +296,7 @@ const api: PixiRendererControllerApi = {
   },
   invalidateLayer: (layer, cellIds) => {
     window.dispatchEvent(new Event(MAP_CONTENT_CHANGED_EVENT));
-    if (!instance) return;
+    if (!instance || !hasRenderableWorld()) return;
     const isAssignment = CELL_ASSIGNMENT_LAYERS.has(layer);
     instance.queueRender(
       isAssignment ? (lastWorld ?? getWorld()) : getWorld(),
@@ -301,7 +307,9 @@ const api: PixiRendererControllerApi = {
   invalidateStyle: layer => {
     window.dispatchEvent(new Event(MAP_CONTENT_CHANGED_EVENT));
     lastRendererStyle = getMapRendererStyle(style);
-    instance?.queueRender(lastWorld ?? getWorld(), lastRendererStyle, { kind: "style", layer });
+    if (instance && hasRenderableWorld()) {
+      instance.queueRender(lastWorld ?? getWorld(), lastRendererStyle, { kind: "style", layer });
+    }
   },
   pick: (clientX, clientY) => {
     const point = getRendererScreenPoint(clientX, clientY);
@@ -319,14 +327,19 @@ const api: PixiRendererControllerApi = {
   queueRebuild: () => {
     window.dispatchEvent(new Event(MAP_CONTENT_CHANGED_EVENT));
     lastRendererStyle = getMapRendererStyle(style);
-    void instancePromise?.then(renderer => renderer.queueRender(getWorld(), lastRendererStyle!, { kind: "world" }));
+    if (!hasRenderableWorld()) return;
+    void instancePromise?.then(renderer => {
+      if (lastRendererStyle && hasRenderableWorld()) {
+        renderer.queueRender(getWorld(), lastRendererStyle, { kind: "world" });
+      }
+    });
   },
   start: async (revision, isCurrent) => {
+    if (!hasRenderableWorld() || !isCurrent()) return false;
     requestedWorldRevision = Math.max(requestedWorldRevision, revision);
     lastError = null;
     lifecycleState = "mounting";
     try {
-      if (!pack?.cells?.i?.length || !isCurrent()) return false;
       // Definitions only provide optional SVG-derived textures (relief, compass, and symbols). In particular Safari
       // can leave the external definitions request pending while restoring a local page. Core geometry must not wait.
       const definitionsWereUnavailable = !document.getElementById("defElements");
@@ -340,7 +353,7 @@ const api: PixiRendererControllerApi = {
       hydrateLegacyPhysicalStyle(style);
       if (!pack.relief?.length) Relief.generate();
       const renderer = await getInstance();
-      if (!isCurrent()) return false;
+      if (!isCurrent() || !hasRenderableWorld()) return false;
       const camera = getCamera();
       renderer.setCamera(camera);
       interactionOverlay.mount(document.getElementById("map") as unknown as SVGSVGElement, {
@@ -349,7 +362,7 @@ const api: PixiRendererControllerApi = {
       });
       interactionOverlay.setCamera(camera);
       await renderer.mount(prepareSurface());
-      if (!isCurrent()) return false;
+      if (!isCurrent() || !hasRenderableWorld()) return false;
       syncVisibility(renderer);
       lastRendererStyle = getMapRendererStyle(style);
       const world = getWorld();
@@ -361,7 +374,9 @@ const api: PixiRendererControllerApi = {
       activatePixiMap(revision);
       if (definitionsWereUnavailable) {
         void definitionsReady.then(available => {
-          if (!available || instance !== renderer || committedWorldRevision !== revision) return;
+          if (!available || instance !== renderer || committedWorldRevision !== revision || !hasRenderableWorld()) {
+            return;
+          }
           lastRendererStyle = getMapRendererStyle(style);
           renderer.queueRender(getWorld(), lastRendererStyle, { kind: "world" });
         });

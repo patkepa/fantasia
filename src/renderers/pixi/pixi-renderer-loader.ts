@@ -2,6 +2,7 @@ import { LAYER_CONTROLS_CHANGE_EVENT } from "@/components/layers/layer-controls"
 import { bindRendererCommands, rendererCommands } from "@/renderers/core/renderer-commands";
 import {
   getPixiRendererSnapshot,
+  hasRenderableWorld,
   pixiRendererController,
   preloadPixiRenderer,
   reportPixiRendererFailure,
@@ -38,7 +39,7 @@ const scheduleStart = (): void => {
 // Vite evaluates module scripts independently. If a generated map is already present by the time this loader finishes
 // evaluating, its one-off `map:generated` event has been missed and the Pixi surface would otherwise never mount.
 const startIfMapIsReady = (): void => {
-  if (typeof pack === "undefined" || !pack?.cells?.i?.length) return;
+  if (!hasRenderableWorld()) return;
   const snapshot = getPixiRendererSnapshot();
   if (snapshot?.lifecycleState === "committed" && snapshot.cells === pack.cells.i.length) return;
   scheduleStart();
